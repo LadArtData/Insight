@@ -1,0 +1,31 @@
+name: Build and push Insight to OCIR
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Insight
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to OCIR
+        run: |
+          echo "${{ secrets.OCIR_PASSWORD }}" | docker login bom.ocir.io \
+            -u "${{ secrets.OCIR_USERNAME }}" --password-stdin
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./python
+          file: ./python/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: bom.ocir.io/bmi3vxyqnzrv/insight:amd64-insight
+
+      - name: Summary
+        run: echo "Pushed bom.ocir.io/bmi3vxyqnzrv/insight:amd64-insight"
