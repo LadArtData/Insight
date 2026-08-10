@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<!--
+  Oracle APEX Static Application File: INSIGHT_apex_ai_matrix_26.html
+  Paste the <div id="apex-matrix-grid"> and log panel markup below into an
+  APEX page's HTML region, and reference INSIGHT_apex_ai_matrix_26.js from
+  Shared Components > Static Application Files
+  (#APP_FILES#INSIGHT_apex_ai_matrix_26.js).
+  This file also renders standalone in any browser, in which case the JS
+  talks directly to the native ORDS module (/insight-hooks/) instead of
+  apex.server.process. Both paths call the same live PL/SQL package --
+  neither path fabricates data.
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oracle APEX 26-Node EDL Matrix</title>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif; background: #0b1120; color: #f8fafc; margin: 0; padding: 24px; min-height: 100vh; }
+        .header { text-align: center; margin-bottom: 24px; }
+        .header h2 { margin: 0 0 8px 0; font-size: 26px; color: #f8fafc; font-weight: 700; letter-spacing: -0.5px; }
+        .header p { margin: 0 0 12px 0; color: #94a3b8; font-size: 14px; }
+        .header code { background: #1e293b; color: #38bdf8; padding: 2px 8px; border-radius: 4px; font-family: monospace; font-weight: 600; }
+        .status-badge { display: inline-block; padding: 4px 12px; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 20px; color: #38bdf8; font-size: 12px; font-weight: 600; font-family: monospace; }
+
+        .grid-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; max-width: 1400px; margin: 0 auto; }
+        .node-card { background: #151e32; border: 1px solid #1e293b; border-radius: 10px; padding: 14px; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); position: relative; overflow: hidden; }
+        .node-card:hover { border-color: #38bdf8; transform: translateY(-3px); box-shadow: 0 10px 15px -3px rgba(56, 189, 248, 0.2); }
+        .node-card:active { transform: translateY(-1px); }
+        .node-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .node-code { font-weight: 700; color: #38bdf8; font-size: 14px; font-family: monospace; }
+        .node-status { font-size: 10px; padding: 3px 8px; border-radius: 9999px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
+        .status-ACTIVE { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); }
+        .status-IDLE { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid rgba(148, 163, 184, 0.3); }
+        .status-PROCESSING { background: rgba(56, 189, 248, 0.2); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.4); }
+        .status-CASCADE { background: rgba(234, 179, 8, 0.2); color: #fde047; border: 1px solid rgba(234, 179, 8, 0.4); }
+        .status-EVALUATING { background: rgba(168, 85, 247, 0.2); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); }
+        .status-LOCKED { background: rgba(100, 116, 139, 0.25); color: #cbd5e1; border: 1px solid rgba(100, 116, 139, 0.4); }
+        .status-COMPLETED { background: rgba(34, 197, 94, 0.15); color: #86efac; border: 1px solid rgba(34, 197, 94, 0.3); }
+        .status-ERROR { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); }
+        .node-name { font-size: 12px; color: #cbd5e1; margin-bottom: 8px; font-weight: 500; height: 32px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+        .value-bar { height: 6px; background: #0f172a; border-radius: 3px; overflow: hidden; margin-top: 8px; }
+        .value-fill { height: 100%; background: linear-gradient(90deg, #0284c7, #38bdf8); transition: width 0.4s ease; }
+
+        .log-panel { max-width: 1400px; margin: 24px auto 0 auto; background: #0f172a; border: 1px solid #1e293b; border-radius: 10px; padding: 16px; font-family: monospace; font-size: 12px; }
+        .log-header { display: flex; justify-content: space-between; color: #94a3b8; margin-bottom: 8px; font-weight: 700; border-bottom: 1px solid #1e293b; padding-bottom: 6px; }
+        .log-content { max-height: 120px; overflow-y: auto; color: #38bdf8; }
+        .log-entry { margin-bottom: 4px; }
+        .log-time { color: #64748b; margin-right: 8px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h2>Oracle APEX 26-Node EDL State Matrix</h2>
+        <p>Click any node to fire a live 2-way writeback through <code>pkg_insight_board_engine.process_edl_event</code></p>
+        <span class="status-badge" id="env-badge">Connecting…</span>
+    </div>
+
+    <div id="apex-matrix-grid" class="grid-container"></div>
+
+    <div class="log-panel">
+        <div class="log-header">
+            <span>WRITEBACK EXECUTION LOG</span>
+            <span id="log-count">0 Events Logged</span>
+        </div>
+        <div class="log-content" id="log-content"></div>
+    </div>
+
+    <!--
+      Only needed for the standalone (non-APEX) path if this file is not
+      served from the same origin as ORDS, or if the insight-hooks module
+      requires an api_key (see sql/INSIGHT_06_ords_rest_module.sql).
+    <script>window.INSIGHT_CONFIG = { ordsBaseUrl: "https://<db>-<tenancy>.adb.<region>.oraclecloudapps.com/ords/admin/insight-hooks", boardId: 1, apiKey: "..." };</script>
+    -->
+    <script src="INSIGHT_apex_ai_matrix_26.js"></script>
+</body>
+</html>

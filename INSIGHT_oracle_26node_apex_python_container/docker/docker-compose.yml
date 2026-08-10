@@ -1,0 +1,47 @@
+version: "3.8"
+
+# Local Oracle Database container for INSIGHT dev/test.
+# This is a *local stand-in* for the real Oracle Autonomous Database the
+# README describes (ADMIN-only login, ORDS/APEX already provisioned).
+# ORDS and APEX are NOT included in this image -- sql/INSIGHT_06 (the ORDS
+# REST module) will not run here. Use this container to develop/test the
+# schema, package, and seed data (sql/INSIGHT_01-05) and to run the Python
+# ingestion script locally. See ../INSIGHT_README.md for the full picture,
+# including how to point everything at the real ADB instead.
+#
+# Usage:
+#   cp .env.example .env      # then edit the password
+#   docker compose up -d
+#   docker compose logs -f oracle-db     # watch first-boot init (~2-5 min)
+#
+# Once healthy, connect as: iteria_ai / <APP_USER_PASSWORD> @ localhost:1521/FREEPDB1
+
+services:
+  oracle-db:
+    image: gvenzl/oracle-free:23-slim
+    container_name: insight-oracle-db
+    environment:
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:?set ORACLE_PASSWORD in docker/.env}
+      APP_USER: iteria_ai
+      APP_USER_PASSWORD: ${APP_USER_PASSWORD:?set APP_USER_PASSWORD in docker/.env}
+    ports:
+      - "1521:1521"
+    volumes:
+      # Persist data across container restarts (survives `docker compose down`,
+      # not `docker compose down -v`).
+      - insight-oracle-data:/opt/oracle/oradata
+      # The original numbered SQL scripts, read-only, referenced by @@ from
+      # the init wrapper below -- not run directly (see initdb/010_*.sql for why).
+      - ../sql:/sql:ro
+      # Init wrapper: switches into FREEPDB1 and runs INSIGHT_01-05 in order.
+      # Only executes on first container start (fresh volume).
+      - ./initdb:/container-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  insight-oracle-data:
