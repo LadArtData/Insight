@@ -2,6 +2,11 @@ name: Build and push Insight to OCIR
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "INSIGHT_oracle_26node_apex_python_container/python/**"
+      - ".github/workflows/build.yml"
 
 jobs:
   build:
@@ -15,17 +20,33 @@ jobs:
 
       - name: Log in to OCIR
         run: |
+          # OCIR wants <tenancy-namespace>/<username>. Accept either form.
+          USER="${{ secrets.OCIR_USERNAME }}"
+          if [ -z "$USER" ] || [ -z "${{ secrets.OCIR_PASSWORD }}" ]; then
+            echo "OCIR_USERNAME / OCIR_PASSWORD secrets are missing"
+            exit 1
+          fi
+          case "$USER" in
+            */*) ;;
+            *) USER="bmi3vxyqnzrv/$USER" ;;
+          esac
+          echo "Logging in to bom.ocir.io as $USER"
           echo "${{ secrets.OCIR_PASSWORD }}" | docker login bom.ocir.io \
-            -u "${{ secrets.OCIR_USERNAME }}" --password-stdin
+            -u "$USER" --password-stdin
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ./python
-          file: ./python/Dockerfile
+          context: INSIGHT_oracle_26node_apex_python_container/python
+          file: INSIGHT_oracle_26node_apex_python_container/python/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: bom.ocir.io/bmi3vxyqnzrv/insight:amd64-insight
+          tags: |
+            bom.ocir.io/bmi3vxyqnzrv/insight:amd64-insight
+            bom.ocir.io/bmi3vxyqnzrv/insight/insight:latest
 
       - name: Summary
-        run: echo "Pushed bom.ocir.io/bmi3vxyqnzrv/insight:amd64-INSIGHT"
+        run: |
+          echo "Pushed bom.ocir.io/bmi3vxyqnzrv/insight:amd64-insight"
+          echo "Note: Insight's main product is SQL/APEX/ORDS under sql/ and apex/."
+          echo "This image is only the optional Python doc-ingestion helper."
