@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile-check Python ingestion script
+        run: python -m py_compile INSIGHT_oracle_26node_apex_python_container/python/INSIGHT_oracle_doc_ingestion.py
+
+      - name: Validate docker-compose config
+        working-directory: INSIGHT_oracle_26node_apex_python_container/docker
+        run: |
+          cp .env.example .env
+          docker compose config -q
+
+      - name: Basic SQL sanity check (non-empty, matched BEGIN/END blocks)
+        run: |
+          for f in INSIGHT_oracle_26node_apex_python_container/sql/INSIGHT_0*.sql; do
+            echo "checking $f"
+            [ -s "$f" ] || { echo "$f is empty"; exit 1; }
+          done

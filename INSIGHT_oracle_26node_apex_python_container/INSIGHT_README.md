@@ -121,6 +121,26 @@ and use the wallet's TNS alias as `ORACLE_SERVICE`. This is a convenience
 utility, not a dependency of `INSIGHT_01`-`06` -- skip it if you don't need
 bulk file ingestion.
 
+## Local web UI (port 8000)
+`docker compose up -d` also starts `insight-web`, a plain nginx container
+serving `web/index.html` (a copy of the INSIGHT app UI) at
+`http://localhost:8000`. It's the same clickable, localStorage-backed
+front end you'd get opening the HTML file directly -- no backend, no live
+data, just reachable over HTTP instead of `file://`. If you deploy this
+compose file to a cloud instance, port 8000 needs its own inbound rule in
+that instance's Security List/NSG (separate from 1521's rule) or the page
+won't load from outside. `web/index.html` is a plain copy, not a symlink --
+if you edit the app UI, copy the updated file into `web/index.html` too.
+
+## CI: publishing the ingestion image
+`.github/workflows/build.yml` builds `python/Dockerfile` and pushes it to
+OCIR on every push to `main`, matching the same pattern used in Validatev5:
+`bom.ocir.io/bmi3vxyqnzrv/insight:amd64-insight`. It logs in with the repo
+secrets `OCIR_USERNAME` / `OCIR_PASSWORD` -- these need to exist on this
+repo (or be shared at the org level) or the login step will fail.
+`.github/workflows/ci.yml` is separate and just validates the compose file
++ Python syntax on every push/PR.
+
 ## Directory structure
 - `sql/`: `INSIGHT_01`-`04` schema + package, `INSIGHT_05` seed data,
   `INSIGHT_06` native ORDS module -- all target ITERIA_AI except `06`
@@ -129,7 +149,10 @@ bulk file ingestion.
 - `apex/`: static HTML + JS for the APEX page / standalone browser use.
 - `python/`: standalone document-ingestion script (`INSIGHT_oracle_doc_ingestion.py`)
   + `INSIGHT_requirements.txt` -- run directly with python3 against either
-  the local Docker DB or the real database.
+  the local Docker DB or the real database. `Dockerfile` packages it as a
+  container image, built/published by `.github/workflows/docker-publish.yml`.
 - `docker/`: `docker-compose.yml` + `initdb/` for a local Oracle Database
   Free container (dev/test only -- no ORDS/APEX). See "Local Docker Oracle
   DB" above.
+- `web/`: `index.html`, a copy of the app UI, served by the `insight-web`
+  nginx service on port 8000. See "Local web UI" above.

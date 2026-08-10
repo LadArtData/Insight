@@ -1,0 +1,13 @@
+# This "Insight" OneDrive folder holds a lot more than the GitHub repo --
+# client documents, an Oracle wallet (private keys), spreadsheets, ad-hoc
+# screenshots, etc. -- none of which belong in git. Rather than trying to
+# blacklist each sensitive thing individually (easy to miss one), this
+# ignores EVERYTHING by default and only whitelists the two paths that are
+# actually meant to be this repo: the GitHub Actions workflows and the
+# INSIGHT_oracle_26node_apex_python_container project folder. Anything new
+# dropped into this OneDrive folder is untracked unless explicitly
+# whitelisted below.
+/*
+!/.gitignore
+!/.github/
+!/INSIGHT_oracle_26node_apex_python_container/

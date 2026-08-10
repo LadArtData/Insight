@@ -1,16 +1,24 @@
-FROM --platform=linux/amd64 python:3.11-slim-bookworm
+# Container image for the standalone ingestion script.
+# Build context is the `python/` folder itself.
+#
+# Usage:
+#   docker run --rm \
+#     -e ORACLE_HOST=... -e ORACLE_PORT=1521 -e ORACLE_SERVICE=FREEPDB1 \
+#     -e ORACLE_USER=iteria_ai -e ORACLE_PASS=... \
+#     -v /path/to/docs:/docs:ro \
+#     ghcr.io/<owner>/insight/insight-doc-ingestion:latest /docs
+#
+# For the real Autonomous DB (wallet/mTLS), also mount the wallet dir and
+# set TNS_ADMIN:
+#   -v /path/to/wallet:/wallet:ro -e TNS_ADMIN=/wallet -e ORACLE_SERVICE=<tns_alias>
 
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1
+FROM python:3.12-slim
 
 WORKDIR /app
 
-COPY INSIGHT_requirements.txt requirements.txt
-RUN pip install --upgrade pip && pip install -r requirements.txt
+COPY INSIGHT_requirements.txt .
+RUN pip install --no-cache-dir -r INSIGHT_requirements.txt
 
 COPY INSIGHT_oracle_doc_ingestion.py .
 
-# Optional bulk ingest helper. Pass a docs path at runtime, e.g.:
-#   docker run ... bom.ocir.io/.../insight:amd64-insight /docs
 ENTRYPOINT ["python", "INSIGHT_oracle_doc_ingestion.py"]

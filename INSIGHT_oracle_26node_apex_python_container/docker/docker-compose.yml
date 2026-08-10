@@ -15,6 +15,12 @@ version: "3.8"
 #   docker compose logs -f oracle-db     # watch first-boot init (~2-5 min)
 #
 # Once healthy, connect as: iteria_ai / <APP_USER_PASSWORD> @ localhost:1521/FREEPDB1
+#
+# insight-web (below) is a separate static-file server for ../web/index.html
+# (a copy of INSIGHT_app.html) -- it does not talk to oracle-db or any
+# backend; it's the same clickable, localStorage-backed UI described in
+# ../INSIGHT_README.md, just reachable over HTTP on port 8000 instead of
+# opened as a local file. Same content, no live data either way.
 
 services:
   oracle-db:
@@ -42,6 +48,15 @@ services:
       timeout: 5s
       retries: 20
       start_period: 30s
+
+  insight-web:
+    image: nginx:alpine
+    container_name: insight-web
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ../web:/usr/share/nginx/html:ro
 
 volumes:
   insight-oracle-data:
