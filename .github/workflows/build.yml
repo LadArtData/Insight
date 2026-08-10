@@ -28,4 +28,4 @@ jobs:
           tags: bom.ocir.io/bmi3vxyqnzrv/insight:amd64-insight
 
       - name: Summary
-        run: echo "Pushed bom.ocir.io/bmi3vxyqnzrv/insight:amd64-insight"
+        run: echo "Pushed bom.ocir.io/bmi3vxyqnzrv/insight:amd64-INSIGHT"
