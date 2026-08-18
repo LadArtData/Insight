@@ -17,6 +17,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Verify INSIGHT_app.html and web/index.html are in sync
+        run: diff -q INSIGHT_app.html INSIGHT_oracle_26node_apex_python_container/web/index.html
+
       - name: Compile-check Python ingestion script
         run: python -m py_compile INSIGHT_oracle_26node_apex_python_container/python/INSIGHT_oracle_doc_ingestion.py
 
