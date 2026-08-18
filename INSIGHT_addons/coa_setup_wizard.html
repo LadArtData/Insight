@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>COA Structure Setup — INSIGHT Phase 1</title>
+<style>
+  :root {
+    --ink: #1a2233;
+    --ink-soft: #5b6478;
+    --line: #dde1ea;
+    --paper: #f6f7fa;
+    --card: #ffffff;
+    --accent: #2b4bf2;
+    --accent-soft: #eaefff;
+    --good: #0f7a4b;
+    --good-soft: #e8f7ef;
+    --bad: #b3261e;
+    --bad-soft: #fdecea;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --sans: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: var(--sans); line-height: 1.45;
+  }
+  .shell {
+    max-width: 960px; margin: 0 auto; padding: 40px 24px 80px;
+    display: grid; grid-template-columns: 260px 1fr; gap: 28px;
+  }
+  @media (max-width: 760px) { .shell { grid-template-columns: 1fr; } }
+
+  header.page-head { grid-column: 1 / -1; margin-bottom: 4px; }
+  header.page-head .eyebrow {
+    font-family: var(--mono); font-size: 0.72rem; letter-spacing: .08em;
+    color: var(--accent); text-transform: uppercase;
+  }
+  header.page-head h1 { margin: 4px 0 2px; font-size: 1.55rem; font-weight: 700; }
+  header.page-head p { margin: 0; color: var(--ink-soft); font-size: 0.92rem; }
+
+  /* --- Sidebar: steps + live COA preview --- */
+  .sidebar { display: flex; flex-direction: column; gap: 18px; }
+  .steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .steps li {
+    display: flex; align-items: center; gap: 10px; padding: 9px 10px;
+    border-radius: 8px; font-size: 0.86rem; color: var(--ink-soft);
+  }
+  .steps li .dot {
+    width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--line);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.68rem; font-family: var(--mono); flex-shrink: 0; background: var(--card);
+  }
+  .steps li.active { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+  .steps li.active .dot { border-color: var(--accent); color: var(--accent); }
+  .steps li.done .dot { border-color: var(--good); color: var(--good); background: var(--good-soft); }
+
+  .preview-card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px;
+  }
+  .preview-card .cap {
+    font-family: var(--mono); font-size: 0.68rem; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--ink-soft); margin-bottom: 8px;
+  }
+  #coa-preview-string {
+    font-family: var(--mono); font-size: 0.98rem; word-break: break-all;
+    background: var(--paper); border-radius: 6px; padding: 10px; min-height: 20px;
+  }
+  #coa-preview-string .seg { color: var(--accent); }
+  #coa-preview-string .delim { color: var(--ink-soft); }
+  #coa-preview-string .placeholder { color: var(--ink-soft); opacity: .5; }
+
+  /* --- Main card --- */
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 26px 28px; min-height: 420px; display: flex; flex-direction: column;
+  }
+  .card h2 { margin: 0 0 4px; font-size: 1.15rem; }
+  .card .sub { margin: 0 0 20px; color: var(--ink-soft); font-size: 0.87rem; }
+
+  label { display: block; font-size: 0.82rem; font-weight: 600; margin: 16px 0 6px; }
+  label .hint { font-weight: 400; color: var(--ink-soft); }
+  input[type=text], input[type=number], select {
+    width: 100%; padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px;
+    font-size: 0.92rem; font-family: var(--sans); background: var(--paper); color: var(--ink);
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+
+  .delim-choice { display: flex; gap: 8px; margin-top: 4px; }
+  .delim-choice button {
+    flex: 1; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper);
+    font-family: var(--mono); font-size: 1rem; cursor: pointer; color: var(--ink);
+  }
+  .delim-choice button.selected { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+
+  .label-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+  .label-choice label.opt {
+    display: flex; align-items: center; gap: 8px; font-weight: 400; font-size: 0.85rem;
+    border: 1px solid var(--line); border-radius: 7px; padding: 9px 10px; margin: 0; cursor: pointer;
+  }
+  .label-choice label.opt.selected { border-color: var(--accent); background: var(--accent-soft); }
+  .label-choice input[type=radio] { width: auto; margin: 0; }
+
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+  .actions { margin-top: auto; padding-top: 22px; display: flex; justify-content: space-between; gap: 10px; }
+  button.btn {
+    border: none; border-radius: 7px; padding: 10px 18px; font-size: 0.88rem; font-weight: 600;
+    cursor: pointer; font-family: var(--sans);
+  }
+  button.btn.primary { background: var(--accent); color: #fff; }
+  button.btn.primary:hover { background: #2140d4; }
+  button.btn.ghost { background: transparent; color: var(--ink-soft); border: 1px solid var(--line); }
+  button.btn.ghost:hover { background: var(--paper); }
+  button.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  .validation-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 0.88rem; }
+  .validation-item.pass { background: var(--good-soft); color: var(--good); }
+  .validation-item.fail { background: var(--bad-soft); color: var(--bad); }
+
+  pre#json-output {
+    background: var(--ink); color: #dfe6ff; padding: 16px; border-radius: 8px; font-family: var(--mono);
+    font-size: 0.78rem; overflow-x: auto; max-height: 360px;
+  }
+  .seg-summary-table { width: 100%; border-collapse: collapse; font-size: 0.83rem; margin-top: 6px; }
+  .seg-summary-table th, .seg-summary-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .seg-summary-table th { color: var(--ink-soft); font-weight: 600; font-size: 0.72rem; text-transform: uppercase; letter-spacing: .04em; }
+
+  .field-error {
+    display: none; align-items: center; gap: 6px; margin-top: 6px;
+    font-size: 0.78rem; color: var(--bad); font-weight: 600;
+  }
+  .field-error.show { display: flex; }
+  .field-invalid { border-color: var(--bad) !important; background: var(--bad-soft) !important; }
+
+  #error-banner {
+    display: none; position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    max-width: 640px; width: calc(100% - 32px); background: var(--bad-soft); color: var(--bad);
+    border: 1px solid #f3b7b1; border-radius: 10px; padding: 12px 16px; font-size: 0.85rem;
+    box-shadow: 0 8px 24px rgba(179,38,30,0.15); z-index: 999; align-items: flex-start; gap: 10px;
+  }
+  #error-banner.show { display: flex; }
+  #error-banner button { margin-left: auto; background: none; border: none; color: var(--bad); font-weight: 700; cursor: pointer; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<div id="error-banner" role="alert">
+  <span id="error-banner-text"></span>
+  <button type="button" id="error-banner-close" aria-label="Dismiss">✕</button>
+</div>
+
+
+<div class="shell">
+  <header class="page-head">
+    <div class="eyebrow">INSIGHT · Phase 1</div>
+    <h1>Chart of Accounts Structure Setup</h1>
+    <p>Browser port of coa_setup_tool.py — same questions, same Fusion validation rules, same JSON output.</p>
+  </header>
+
+  <aside class="sidebar">
+    <ul class="steps" id="step-list">
+      <li data-step="0"><span class="dot">1</span> Structure metadata</li>
+      <li data-step="1"><span class="dot">2</span> Segment details</li>
+      <li data-step="2"><span class="dot">3</span> Fusion validation</li>
+      <li data-step="3"><span class="dot">4</span> Generated payload</li>
+    </ul>
+    <div class="preview-card">
+      <div class="cap">Live COA string</div>
+      <div id="coa-preview-string"><span class="placeholder">segment1-segment2-...</span></div>
+    </div>
+  </aside>
+
+  <main class="card" id="card-root"></main>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var LABELS = {
+    "1": "Primary Balancing Segment",
+    "2": "Cost Center Segment",
+    "3": "Natural Account Segment",
+    "4": "Secondary Balancing Segment",
+    "5": "Intercompany Segment",
+    "6": "None"
+  };
+
+  var state = {
+    step: 0,
+    structureName: "",
+    delimiter: "-",
+    numSegments: 4,
+    segIndex: 1,          // which segment the sub-wizard is currently collecting
+    segments: [],          // finished segment objects
+    draft: { name: "", labelChoice: "6", maxLen: 4, formatType: "Numeric" }
+  };
+
+  var root = document.getElementById("card-root");
+  var stepListEl = document.getElementById("step-list");
+  var previewEl = document.getElementById("coa-preview-string");
+
+  function updateStepList() {
+    var lis = stepListEl.querySelectorAll("li");
+    lis.forEach(function (li) {
+      var s = Number(li.dataset.step);
+      li.classList.toggle("active", s === state.step);
+      li.classList.toggle("done", s < state.step);
+    });
+  }
+
+  function updatePreview() {
+    var names = state.segments.map(function (s) { return s.segmentCode || s.segmentName; });
+    if (state.step === 1 && state.draft.name.trim()) {
+      names = names.concat([state.draft.name.trim().toUpperCase().replace(/ /g, "_")]);
+    }
+    if (names.length === 0) {
+      previewEl.innerHTML = '<span class="placeholder">segment1' + state.delimiter + 'segment2' + state.delimiter + '...</span>';
+      return;
+    }
+    var delimSpan = '<span class="delim">' + escapeHtml(state.delimiter) + '</span>';
+    previewEl.innerHTML = names.map(function (n) { return '<span class="seg">' + escapeHtml(n) + '</span>'; }).join(delimSpan);
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  // ---------------- Validation ----------------
+  // Centralized rules so every field is checked the same way, both on the
+  // way in (as the user types) and as a hard gate before advancing steps.
+  var NAME_PATTERN = /^[A-Za-z0-9 _-]+$/; // safe for segment/structure codes, value set names, and filenames
+
+  function validateStructureName(value) {
+    var v = (value || "").trim();
+    if (!v) return "Enter a COA Structure Name to continue.";
+    if (v.length < 2) return "Structure name must be at least 2 characters.";
+    if (v.length > 80) return "Structure name must be 80 characters or fewer.";
+    if (!NAME_PATTERN.test(v)) return "Use only letters, numbers, spaces, underscores, and hyphens.";
+    return null;
+  }
+
+  function validateSegmentName(value) {
+    var v = (value || "").trim();
+    if (!v) return "Enter a segment name to continue.";
+    if (v.length > 40) return "Segment name must be 40 characters or fewer.";
+    if (!NAME_PATTERN.test(v)) return "Use only letters, numbers, spaces, underscores, and hyphens.";
+    return null;
+  }
+
+  function validateNumSegments(value) {
+    var n = Number(value);
+    if (!Number.isInteger(n) || String(value).trim() === "") return "Enter a whole number of segments.";
+    if (n < 1 || n > 10) return "Segment count must be between 1 and 10.";
+    return null;
+  }
+
+  function validateMaxLen(value) {
+    var n = Number(value);
+    if (!Number.isInteger(n) || String(value).trim() === "") return "Enter a whole number for maximum length.";
+    if (n < 1 || n > 40) return "Maximum length must be between 1 and 40.";
+    return null;
+  }
+
+  // Shows/hides an inline error under a field and toggles its invalid styling.
+  function setFieldError(inputEl, errorEl, message) {
+    if (message) {
+      errorEl.textContent = message;
+      errorEl.classList.add("show");
+      inputEl.classList.add("field-invalid");
+      inputEl.setAttribute("aria-invalid", "true");
+    } else {
+      errorEl.textContent = "";
+      errorEl.classList.remove("show");
+      inputEl.classList.remove("field-invalid");
+      inputEl.removeAttribute("aria-invalid");
+    }
+  }
+
+  // ---------------- Global error handling ----------------
+  // Anything unexpected (a render bug, a browser API rejecting, a future
+  // network call failing once this is wired into Oracle) surfaces here as a
+  // dismissible banner instead of leaving the user looking at a dead page.
+  var errorBanner = document.getElementById("error-banner");
+  var errorBannerText = document.getElementById("error-banner-text");
+  function showFatalError(message) {
+    errorBannerText.textContent = message;
+    errorBanner.classList.add("show");
+  }
+  document.getElementById("error-banner-close").addEventListener("click", function () {
+    errorBanner.classList.remove("show");
+  });
+  window.addEventListener("error", function (e) {
+    showFatalError("Something went wrong: " + (e.message || "unexpected error") + ". Your progress is still in memory — try the last action again.");
+  });
+  window.addEventListener("unhandledrejection", function (e) {
+    showFatalError("A background operation failed: " + (e.reason && e.reason.message ? e.reason.message : "unknown error") + ".");
+  });
+
+  // Wraps each render*/handler call so a thrown error shows the banner
+  // instead of silently breaking the page.
+  function safe(fn) {
+    return function () {
+      try {
+        return fn.apply(this, arguments);
+      } catch (err) {
+        showFatalError("Couldn't complete that action: " + err.message);
+      }
+    };
+  }
+
+  // ---------------- Step 0: structure metadata ----------------
+  function renderStep0() {
+    root.innerHTML =
+      '<h2>Structure metadata</h2>' +
+      '<p class="sub">Same three questions the CLI asks first: structure name, delimiter, and segment count.</p>' +
+      '<label>COA Structure Name <span class="hint">e.g. Acme_Global_COA</span></label>' +
+      '<input type="text" id="in-structure-name" maxlength="80" placeholder="Acme_Global_COA" value="' + escapeHtml(state.structureName) + '">' +
+      '<div class="field-error" id="err-structure-name"></div>' +
+
+      '<label>Segment Delimiter</label>' +
+      '<div class="delim-choice" id="delim-choice">' +
+        ["-", ".", "|"].map(function (d) {
+          return '<button type="button" data-d="' + d + '" class="' + (state.delimiter === d ? "selected" : "") + '">' + d + '</button>';
+        }).join("") +
+      '</div>' +
+
+      '<label>How many segments will this COA have? <span class="hint">1–10</span></label>' +
+      '<input type="number" id="in-num-segments" min="1" max="10" step="1" value="' + state.numSegments + '">' +
+      '<div class="field-error" id="err-num-segments"></div>' +
+
+      '<div class="actions">' +
+        '<span></span>' +
+        '<button class="btn primary" id="btn-next0">Next: Segment details</button>' +
+      '</div>';
+
+    var nameInput = document.getElementById("in-structure-name");
+    var nameError = document.getElementById("err-structure-name");
+    var numInput = document.getElementById("in-num-segments");
+    var numError = document.getElementById("err-num-segments");
+
+    nameInput.addEventListener("input", function (e) {
+      state.structureName = e.target.value;
+      setFieldError(nameInput, nameError, null); // clear as-you-type; hard-checked again on Next
+      updatePreview();
+    });
+    nameInput.addEventListener("blur", function () {
+      setFieldError(nameInput, nameError, validateStructureName(state.structureName));
+    });
+
+    document.querySelectorAll("#delim-choice button").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        state.delimiter = btn.dataset.d;
+        document.querySelectorAll("#delim-choice button").forEach(function (b) { b.classList.toggle("selected", b === btn); });
+        updatePreview();
+      });
+    });
+
+    numInput.addEventListener("input", function (e) {
+      // Reflect exactly what was typed for validation purposes; state.numSegments
+      // itself is only updated once the value passes validation (see below),
+      // so a stray keystroke never silently gets clamped without explanation.
+      var msg = validateNumSegments(e.target.value);
+      setFieldError(numInput, numError, msg);
+      if (!msg) state.numSegments = Number(e.target.value);
+    });
+
+    document.getElementById("btn-next0").addEventListener("click", safe(function () {
+      var nameMsg = validateStructureName(state.structureName);
+      var numMsg = validateNumSegments(numInput.value);
+      setFieldError(nameInput, nameError, nameMsg);
+      setFieldError(numInput, numError, numMsg);
+      if (nameMsg) { nameInput.focus(); return; }
+      if (numMsg) { numInput.focus(); return; }
+
+      state.step = 1;
+      state.segIndex = 1;
+      state.segments = [];
+      state.draft = { name: "", labelChoice: "6", maxLen: 4, formatType: "Numeric" };
+      render();
+    }));
+  }
+
+  // ---------------- Step 1: per-segment sub-wizard ----------------
+  function renderStep1() {
+    var d = state.draft;
+    root.innerHTML =
+      '<h2>Segment ' + state.segIndex + ' of ' + state.numSegments + '</h2>' +
+      '<p class="sub">Same per-segment questions the CLI loops through: name, qualifier label, max length, format type.</p>' +
+
+      '<label>Segment ' + state.segIndex + ' Name <span class="hint">e.g. Company, Department</span></label>' +
+      '<input type="text" id="in-seg-name" maxlength="40" placeholder="Company" value="' + escapeHtml(d.name) + '">' +
+      '<div class="field-error" id="err-seg-name"></div>' +
+
+      '<label>Segment Qualifier Label</label>' +
+      '<div class="label-choice" id="label-choice">' +
+        Object.keys(LABELS).map(function (k) {
+          return '<label class="opt' + (d.labelChoice === k ? " selected" : "") + '">' +
+            '<input type="radio" name="lbl" value="' + k + '" ' + (d.labelChoice === k ? "checked" : "") + '> ' +
+            LABELS[k] + '</label>';
+        }).join("") +
+      '</div>' +
+
+      '<div class="row2">' +
+        '<div>' +
+          '<label>Maximum Character Length</label>' +
+          '<input type="number" id="in-max-len" min="1" max="40" step="1" value="' + d.maxLen + '">' +
+          '<div class="field-error" id="err-max-len"></div>' +
+        '</div>' +
+        '<div>' +
+          '<label>Format Type</label>' +
+          '<select id="in-format-type">' +
+            '<option value="Numeric"' + (d.formatType === "Numeric" ? " selected" : "") + '>Numeric</option>' +
+            '<option value="Alphanumeric"' + (d.formatType === "Alphanumeric" ? " selected" : "") + '>Alphanumeric</option>' +
+          '</select>' +
+        '</div>' +
+      '</div>' +
+
+      '<div class="actions">' +
+        '<button class="btn ghost" id="btn-back1">Back</button>' +
+        '<button class="btn primary" id="btn-next1">' +
+          (state.segIndex < state.numSegments ? "Next segment" : "Continue to validation") +
+        '</button>' +
+      '</div>';
+
+    var nameInput = document.getElementById("in-seg-name");
+    var nameError = document.getElementById("err-seg-name");
+    var maxLenInput = document.getElementById("in-max-len");
+    var maxLenError = document.getElementById("err-max-len");
+
+    nameInput.addEventListener("input", function (e) {
+      d.name = e.target.value;
+      setFieldError(nameInput, nameError, null);
+      updatePreview();
+    });
+    nameInput.addEventListener("blur", function () {
+      setFieldError(nameInput, nameError, validateSegmentName(d.name));
+    });
+
+    document.querySelectorAll('#label-choice input[type=radio]').forEach(function (r) {
+      r.addEventListener("change", function () {
+        d.labelChoice = r.value;
+        document.querySelectorAll('#label-choice .opt').forEach(function (o) {
+          o.classList.toggle("selected", o.querySelector("input").value === r.value);
+        });
+      });
+    });
+
+    maxLenInput.addEventListener("input", function (e) {
+      var msg = validateMaxLen(e.target.value);
+      setFieldError(maxLenInput, maxLenError, msg);
+      if (!msg) d.maxLen = Number(e.target.value);
+    });
+    document.getElementById("in-format-type").addEventListener("change", function (e) { d.formatType = e.target.value; });
+
+    document.getElementById("btn-back1").addEventListener("click", safe(function () {
+      if (state.segIndex > 1) {
+        state.segIndex -= 1;
+        state.draft = toDraft(state.segments.pop());
+      } else {
+        state.step = 0;
+      }
+      render();
+    }));
+
+    document.getElementById("btn-next1").addEventListener("click", safe(function () {
+      var nameMsg = validateSegmentName(d.name);
+      var maxLenMsg = validateMaxLen(maxLenInput.value);
+      setFieldError(nameInput, nameError, nameMsg);
+      setFieldError(maxLenInput, maxLenError, maxLenMsg);
+      if (nameMsg) { nameInput.focus(); return; }
+      if (maxLenMsg) { maxLenInput.focus(); return; }
+
+      commitDraftSegment();
+      if (state.segIndex < state.numSegments) {
+        state.segIndex += 1;
+        state.draft = { name: "", labelChoice: "6", maxLen: 4, formatType: "Numeric" };
+      } else {
+        state.step = 2;
+      }
+      render();
+    }));
+  }
+
+  function toDraft(segObj) {
+    var choiceKey = Object.keys(LABELS).find(function (k) { return LABELS[k] === segObj.segmentLabel; }) || "6";
+    return {
+      name: segObj.segmentName,
+      labelChoice: choiceKey,
+      maxLen: segObj.valueSetDetails.maximumLength,
+      formatType: segObj.valueSetDetails.formatType
+    };
+  }
+
+  function commitDraftSegment() {
+    var d = state.draft;
+    var seg = {
+      segmentSequence: state.segIndex,
+      segmentName: d.name.trim(),
+      segmentCode: d.name.trim().toUpperCase().replace(/ /g, "_"),
+      promptLabel: d.name.trim() + " Code",
+      segmentLabel: LABELS[d.labelChoice] || "None",
+      valueSetDetails: {
+        valueSetName: "VS_" + state.structureName.toUpperCase().replace(/ /g, "_") + "_" + d.name.trim().toUpperCase().replace(/ /g, "_"),
+        dataType: "Character",
+        maximumLength: d.maxLen,
+        formatType: (d.formatType === "Numeric" || d.formatType === "Alphanumeric") ? d.formatType : "Numeric"
+      }
+    };
+    state.segments[state.segIndex - 1] = seg;
+  }
+
+  // ---------------- Step 2: Fusion validation ----------------
+  function renderStep2() {
+    var hasPrimary = state.segments.some(function (s) { return s.segmentLabel === "Primary Balancing Segment"; });
+    var hasNatural = state.segments.some(function (s) { return s.segmentLabel === "Natural Account Segment"; });
+    var passed = hasPrimary && hasNatural;
+
+    root.innerHTML =
+      '<h2>Validating Fusion rules</h2>' +
+      '<p class="sub">Same two checks the CLI enforces before it will generate a payload.</p>' +
+
+      '<div class="validation-item ' + (hasPrimary ? "pass" : "fail") + '">' +
+        (hasPrimary ? "\u2713" : "\u2717") +
+        '&nbsp; Fusion requires at least one <strong>&nbsp;Primary Balancing Segment</strong>' +
+      '</div>' +
+      '<div class="validation-item ' + (hasNatural ? "pass" : "fail") + '">' +
+        (hasNatural ? "\u2713" : "\u2717") +
+        '&nbsp; Fusion requires at least one <strong>&nbsp;Natural Account Segment</strong>' +
+      '</div>' +
+
+      '<table class="seg-summary-table">' +
+        '<thead><tr><th>#</th><th>Name</th><th>Label</th><th>Length</th><th>Format</th></tr></thead>' +
+        '<tbody>' +
+          state.segments.map(function (s) {
+            return '<tr><td>' + s.segmentSequence + '</td><td>' + escapeHtml(s.segmentName) + '</td><td>' +
+              escapeHtml(s.segmentLabel) + '</td><td>' + s.valueSetDetails.maximumLength + '</td><td>' +
+              s.valueSetDetails.formatType + '</td></tr>';
+          }).join("") +
+        '</tbody>' +
+      '</table>' +
+
+      '<div class="actions">' +
+        '<button class="btn ghost" id="btn-back2">Back</button>' +
+        '<button class="btn primary" id="btn-next2"' + (passed ? "" : " disabled") + '>' +
+          (passed ? "Generate payload" : "Fix segment labels to continue") +
+        '</button>' +
+      '</div>';
+
+    document.getElementById("btn-back2").addEventListener("click", safe(function () {
+      state.step = 1;
+      state.segIndex = state.numSegments;
+      state.draft = toDraft(state.segments[state.segments.length - 1]);
+      state.segments = state.segments.slice(0, -1);
+      render();
+    }));
+    if (passed) {
+      document.getElementById("btn-next2").addEventListener("click", safe(function () {
+        state.step = 3;
+        render();
+      }));
+    }
+  }
+
+  // ---------------- Step 3: generated payload ----------------
+  function buildPayload() {
+    return {
+      chartOfAccountsMetaData: {
+        structureName: state.structureName,
+        structureCode: state.structureName.toUpperCase().replace(/ /g, "_"),
+        delimiter: state.delimiter,
+        totalSegments: state.numSegments
+      },
+      segments: state.segments
+    };
+  }
+
+  function renderStep3() {
+    var payload, jsonText;
+    try {
+      payload = buildPayload();
+      jsonText = JSON.stringify(payload, null, 2);
+    } catch (err) {
+      showFatalError("Couldn't build the JSON payload: " + err.message + ". Go back and check the segment details.");
+      return;
+    }
+    var filename = state.structureName.trim().replace(/\s+/g, "_") + "_coa_config.json";
+
+    root.innerHTML =
+      '<h2>Generated payload</h2>' +
+      '<p class="sub">Same JSON shape coa_setup_tool.py writes to <code>' + escapeHtml(filename) + '</code> — download or copy it here.</p>' +
+      '<pre id="json-output"></pre>' +
+      '<div class="actions">' +
+        '<button class="btn ghost" id="btn-restart">Start over</button>' +
+        '<span style="display:flex; gap:10px;">' +
+          '<button class="btn ghost" id="btn-copy">Copy JSON</button>' +
+          '<button class="btn primary" id="btn-download">Download ' + escapeHtml(filename) + '</button>' +
+        '</span>' +
+      '</div>';
+
+    document.getElementById("json-output").textContent = jsonText;
+
+    document.getElementById("btn-copy").addEventListener("click", safe(function () {
+      if (!navigator.clipboard || !navigator.clipboard.writeText) {
+        showFatalError("Clipboard access isn't available in this browser/context — use Download instead.");
+        return;
+      }
+      navigator.clipboard.writeText(jsonText).then(function () {
+        var btn = document.getElementById("btn-copy");
+        var original = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(function () { btn.textContent = original; }, 1200);
+      }).catch(function (err) {
+        showFatalError("Couldn't copy to clipboard: " + err.message + ". Use Download instead.");
+      });
+    }));
+
+    document.getElementById("btn-download").addEventListener("click", safe(function () {
+      var blob, url;
+      try {
+        blob = new Blob([jsonText], { type: "application/json" });
+        url = URL.createObjectURL(blob);
+      } catch (err) {
+        showFatalError("Couldn't prepare the file for download: " + err.message);
+        return;
+      }
+      try {
+        var a = document.createElement("a");
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      } catch (err) {
+        showFatalError("Download failed: " + err.message + ". Try Copy JSON instead.");
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }));
+
+    document.getElementById("btn-restart").addEventListener("click", function () {
+      state = { step: 0, structureName: "", delimiter: "-", numSegments: 4, segIndex: 1, segments: [],
+                draft: { name: "", labelChoice: "6", maxLen: 4, formatType: "Numeric" } };
+      render();
+    });
+  }
+
+  function render() {
+    try {
+      updateStepList();
+      updatePreview();
+      if (state.step === 0) renderStep0();
+      else if (state.step === 1) renderStep1();
+      else if (state.step === 2) renderStep2();
+      else renderStep3();
+    } catch (err) {
+      showFatalError("The screen failed to render: " + err.message + ". Try Start Over if this persists.");
+    }
+  }
+
+  render();
+})();
+</script>
+</body>
+</html>

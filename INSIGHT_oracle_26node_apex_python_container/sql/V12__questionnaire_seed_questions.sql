@@ -3,10 +3,12 @@ ALTER SESSION SET CURRENT_SCHEMA = ITERIA_AI;
 -- QUESTIONNAIRE BACKEND: SEED DATA FOR INSIGHT_QUESTIONS
 -- Requires INSIGHT_07 (insight_questions table).
 --
--- Generated from the live ALL_QUESTIONS array in INSIGHT_app.html so the
--- seeded rows match exactly what the front end asks -- not hand-
--- transcribed. If a question is added/edited in the app, re-generate
--- this file from the same source rather than editing rows by hand.
+-- Generated from questions/insight_questions.json (scripts/gen-sql-seed.js)
+-- -- the same source that generates INSIGHT_app.html's ALL_QUESTIONS array
+-- (scripts/gen-js-questions.js), so the seeded rows can't drift from what
+-- the front end asks. If a question is added/edited, edit
+-- questions/insight_questions.json and regenerate both -- don't hand-edit
+-- rows here.
 -- ============================================================================
 
 MERGE INTO insight_questions tgt

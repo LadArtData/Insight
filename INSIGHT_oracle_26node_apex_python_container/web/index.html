@@ -530,6 +530,8 @@
   // the ordered list actually being asked right now: Phase 1 + Phase 2 are
   // always asked; Phase 3 rows only appear once their module's Phase 2
   // qualifier is answered "Yes" (GL is always in scope).
+  // GENERATED:QUESTIONS:START -- do not hand-edit; regenerate via
+  // scripts/gen-js-questions.js from questions/insight_questions.json
   var ALL_QUESTIONS = [
     { id: "INTAKE-001", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the client\'s full legal company name, and what should we call them informally?', type: "text", answer: null, required: true },
     { id: "INTAKE-002", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'Who is the primary contact for this engagement (name, title, email, phone)?', type: "text", answer: null, required: true },
@@ -621,8 +623,9 @@
     { id: "CM-006", module: "CM", phase: "3", eyebrow: 'Phase 3 · CM Discovery — Bank Statement Reconciliation', text: 'What matching rules or tolerances are needed to auto-reconcile transactions?', type: "text", answer: null, required: true },
     { id: "CM-007", module: "CM", phase: "3", eyebrow: 'Phase 3 · CM Discovery — Transactions & Transfers', text: 'How are inter-bank or intercompany transfers initiated and recorded?', type: "text", answer: null, required: false },
     { id: "CM-008", module: "CM", phase: "3", eyebrow: 'Phase 3 · CM Discovery — Transactions & Transfers', text: 'What payment file formats are required for outbound disbursements (e.g., NACHA, ISO 20022)?', type: "text", answer: null, required: true },
-    { id: "CM-009", module: "CM", phase: "3", eyebrow: 'Phase 3 · CM Discovery — Reporting & Compliance', text: 'What CM-specific reports are required (cash position, bank reconciliation status, transaction detail)?', type: "text", answer: null, required: true }
+    { id: "CM-009", module: "CM", phase: "3", eyebrow: 'Phase 3 · CM Discovery — Reporting & Compliance', text: 'What CM-specific reports are required (cash position, bank reconciliation status, transaction detail)?', type: "text", answer: null, required: true },
   ];
+  // GENERATED:QUESTIONS:END
   var qIndex = 0;
 
   function isModuleInScope(moduleCode) {

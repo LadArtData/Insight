@@ -33,6 +33,12 @@ jobs:
           npm ci
           npm test
 
+      - name: Verify question set matches questions/insight_questions.json
+        working-directory: INSIGHT_oracle_26node_apex_python_container
+        run: |
+          node scripts/gen-js-questions.js --check
+          node scripts/gen-sql-seed.js --check
+
       - name: Compile-check Python ingestion script
         run: python -m py_compile INSIGHT_oracle_26node_apex_python_container/python/INSIGHT_oracle_doc_ingestion.py
 
@@ -44,7 +50,7 @@ jobs:
 
       - name: Basic SQL sanity check (non-empty, matched BEGIN/END blocks)
         run: |
-          for f in INSIGHT_oracle_26node_apex_python_container/sql/INSIGHT_0*.sql; do
+          for f in INSIGHT_oracle_26node_apex_python_container/sql/*.sql; do
             echo "checking $f"
             [ -s "$f" ] || { echo "$f is empty"; exit 1; }
           done
