@@ -6,17 +6,24 @@
 # actually meant to be this repo: the GitHub Actions workflows, the
 # INSIGHT_oracle_26node_apex_python_container project folder,
 # INSIGHT_app.html (tracked so CI can diff it against web/index.html and
-# catch the two copies drifting -- see ci.yml), INSIGHT_addons/ (the COA
-# setup tools + discovery/product-mapping workbook -- real project
-# artifacts, not scratch files), and INSIGHT_All_Clients_Roster.xlsx (the
-# manual client-tracking roster; its sample rows are placeholder data, not
-# a real engagement -- checked before whitelisting). Anything new dropped
-# into this OneDrive folder is untracked unless explicitly whitelisted
-# below.
+# catch the two copies drifting -- see ci.yml), and INSIGHT_addons/ (the
+# COA setup tools + discovery/product-mapping workbook -- real project
+# artifacts, not scratch files). Anything new dropped into this OneDrive
+# folder is untracked unless explicitly whitelisted below.
+#
+# Deliberately NOT tracked, though both live in this folder:
+#   - INSIGHT_All_Clients_Roster.xlsx -- the manual client-tracking roster.
+#     Even with placeholder rows it carries named contacts, titles and
+#     email addresses in a column layout built for real engagements. This
+#     repo is public and git history is permanent, so a future update
+#     containing real client data would be published irreversibly. Keep it
+#     local.
+#   - Screenshots. Ad-hoc, dated, and never a build input.
 /*
 !/.gitignore
 !/.github/
 !/INSIGHT_oracle_26node_apex_python_container/
 !/INSIGHT_app.html
 !/INSIGHT_addons/
-!/INSIGHT_All_Clients_Roster.xlsx
+Screenshot*.png
+*/Screenshot*.png
