@@ -1,0 +1,31 @@
+# Container image for INSIGHT_chat_proxy.py -- a long-running HTTP
+# service, unlike the one-shot ingestion script's Dockerfile in this same
+# folder, hence a separate Dockerfile rather than sharing one.
+# Build context is the `python/` folder itself (needs both this file and
+# INSIGHT_chat_proxy.py).
+#
+# Usage:
+#   docker run --rm -p 5001:5001 \
+#     -v ~/.oci:/root/.oci:ro \
+#     -e OCI_COMPARTMENT_ID=... -e OCI_GENAI_MODEL_ID=... \
+#     -e OCI_CONFIG_PROFILE=INSIGHT \
+#     insight-chat-proxy
+#
+# The OCI config/private key is mounted read-only from the host, never
+# baked into the image -- same reasoning as the wallet mount pattern used
+# elsewhere in this project for Oracle DB credentials.
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+COPY INSIGHT_chat_proxy_requirements.txt .
+RUN pip install --no-cache-dir -r INSIGHT_chat_proxy_requirements.txt
+
+COPY INSIGHT_chat_proxy.py .
+
+EXPOSE 5001
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5001/health', timeout=2)" || exit 1
+
+CMD ["python", "INSIGHT_chat_proxy.py"]
