@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "description": "Regression tests for the INSIGHT questionnaire front end (index.html)",
   "scripts": {
-    "test": "node --test tests/"
+    "test": "node --test tests/*.test.js"
   },
   "devDependencies": {
     "jsdom": "^24.1.0"

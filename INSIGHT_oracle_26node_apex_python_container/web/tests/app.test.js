@@ -34,10 +34,13 @@ async function bootApp() {
   // tested without fighting jsdom's unrelated gaps.
   if (!window.URL.createObjectURL) window.URL.createObjectURL = function () { return "blob:test"; };
   if (!window.URL.revokeObjectURL) window.URL.revokeObjectURL = function () {};
-  await new Promise((resolve) => {
-    if (window.document.readyState === "complete") resolve();
-    else window.addEventListener("load", resolve);
-  });
+  // Poll readyState rather than awaiting the "load" event. Under Node's
+  // test runner (node --test) a listener attached here never fires, so
+  // awaiting "load" hangs every test forever -- the suite emits
+  // "TAP version 13" and nothing else. Polling is runner-agnostic.
+  for (let i = 0; i < 300 && window.document.readyState !== "complete"; i++) {
+    await wait(10);
+  }
   await wait(1450); // loading screen's own 1400ms "ready" timer
   byId(window, "btn-start").click();
   return dom;
