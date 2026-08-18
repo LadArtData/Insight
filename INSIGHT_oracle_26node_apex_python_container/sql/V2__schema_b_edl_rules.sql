@@ -1,4 +1,3 @@
-SET DEFINE OFF
 ALTER SESSION SET CURRENT_SCHEMA = ITERIA_AI;
 -- ============================================================================
 -- ORACLE DATABASE SCHEMA B: BEHAVIOR AND EDL LAYER

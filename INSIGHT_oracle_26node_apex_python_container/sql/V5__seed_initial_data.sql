@@ -1,4 +1,3 @@
-SET DEFINE OFF
 ALTER SESSION SET CURRENT_SCHEMA = ITERIA_AI;
 -- ============================================================================
 -- SEED DATA: Board #1 and its 26 Node rows

@@ -8,25 +8,50 @@ live in `ITERIA_AI`, while the ORDS REST modules that expose them --
 `frp-hooks`, `scout-hooks`, `validate-hooks` -- are registered under
 `ADMIN`), INSIGHT follows the same split:
 
-- **Tables + package deploy into `ITERIA_AI`** (`INSIGHT_01`-`INSIGHT_05`).
-  Each script leads with `ALTER SESSION SET CURRENT_SCHEMA = ITERIA_AI;`,
-  so just stay connected as ADMIN and run them in SQL Developer Web /
-  Database Actions.
+- **Tables + package deploy into `ITERIA_AI`** (`V1`-`V5`). Each script
+  leads with `ALTER SESSION SET CURRENT_SCHEMA = ITERIA_AI;`, so connect
+  as ADMIN and apply them via Flyway (see "Applying migrations" below) --
+  running them by hand in SQL Developer Web / Database Actions still works
+  too, in order, if you ever need to.
 - **The ORDS REST module registers under `ADMIN`** (`INSIGHT_06`), same as
   the other three modules, and reaches into `ITERIA_AI` for every call.
+  It's a one-off ORDS metadata registration against a real ORDS-enabled
+  environment, not a schema migration -- it's intentionally **not**
+  Flyway-tracked (doesn't match the `V<n>__...` naming Flyway scans for)
+  and doesn't run against the local Docker container, which has no ORDS.
+  Run it by hand, connected as ADMIN, once ORDS is available.
 
-Run in order, connected as ADMIN:
+## Applying migrations (Flyway)
+All schema changes (`sql/V1__...` through the current head) are applied
+with [Flyway](https://flywaydb.org/) -- there's no dependency to install
+locally, the official Docker image is enough:
 
+```bash
+docker run --rm -v "$(pwd)/sql:/flyway/sql:ro" flyway/flyway:11 \
+  -url=jdbc:oracle:thin:@<host>:1521/<service> \
+  -user=ADMIN -password=<password> \
+  -locations=filesystem:/flyway/sql \
+  -sqlMigrationPrefix=V -sqlMigrationSeparator=__ -sqlMigrationSuffixes=.sql \
+  migrate
 ```
-sql/INSIGHT_01_schema_a_nodes_26.sql              -- data-layer tables (-> ITERIA_AI)
-sql/INSIGHT_02_schema_b_edl_rules.sql             -- EDL rules table + seed rules (-> ITERIA_AI)
-sql/INSIGHT_03_pkg_insight_board_engine_spec.sql  -- pkg_insight_board_engine spec (-> ITERIA_AI)
-sql/INSIGHT_04_pkg_insight_board_engine_body.sql  -- pkg_insight_board_engine body (-> ITERIA_AI)
-sql/INSIGHT_05_seed_initial_data.sql              -- board 1 + its 26 nodes (-> ITERIA_AI)
-sql/INSIGHT_06_ords_rest_module.sql               -- native ORDS REST module (-> ADMIN, calls into ITERIA_AI)
-```
 
-(`03`/`04` were renamed along with the package -- if you have the old
+Against the local Docker container, `docker/docker-compose.yml` already
+wraps this (see "Local Docker Oracle DB" below):
+`docker compose --profile migrate run --rm flyway`.
+
+**Adopting Flyway against an environment that already has `V1`-`V6` applied
+by hand** (e.g. the real ADB, which was set up before Flyway existed here):
+run `flyway baseline -baselineVersion=5` once first -- this tells Flyway
+"V1-V5 are already done, don't try to re-run them," without touching the
+database. (Baseline at 5, not 6, since V6 was never Flyway-tracked.) After
+that, a normal `flyway migrate` applies anything newer.
+
+`sql/INSIGHT_06_ords_rest_module.sql`, `sql/ADMIN_reference_export.sql`,
+and `sql/INSIGHT_ADMIN_cleanup_old_objects.sql` are deliberately excluded
+from every migrate run above (filename doesn't match `V<n>__...`) -- run
+them by hand, connected as ADMIN, when their specific circumstance applies.
+
+(`V3`/`V4` carry the package rename forward -- if you have the old
 `INSIGHT_03_pkg_ai_board_engine_spec.sql` / `INSIGHT_04_pkg_ai_board_engine_body.sql`
 saved anywhere, delete them and use these instead.)
 
@@ -77,29 +102,30 @@ Reference the JS from Shared Components > Static Application Files
   the same origin as ORDS, or if `iteria_ai.api_configuration` has an
   active key.
 
-## Discovery questionnaire backend (INSIGHT_07-12)
+## Discovery questionnaire backend (V7-V13)
 `INSIGHT_app.html` (the client discovery questionnaire) originally only had
-a `localStorage` fallback -- no real backend. `sql/INSIGHT_07`-`12` add one,
-as a separate feature from the 26-node EDL matrix above; both deploy into
-the same `ITERIA_AI` schema but don't interact with each other. Run in
-order, connected as ADMIN:
+a `localStorage` fallback -- no real backend. `sql/V7`-`V13` add one, as a
+separate feature from the 26-node EDL matrix above; both deploy into the
+same `ITERIA_AI` schema but don't interact with each other. Applied the
+same way as V1-V5 -- see "Applying migrations" above:
 
 ```
-sql/INSIGHT_07_questionnaire_schema.sql              -- insight_questions, insight_clients, insight_client_answers
-sql/INSIGHT_08_questionnaire_answers_pkg.sql          -- insight_answer_change_requests + pkg_insight_answers spec
-sql/INSIGHT_09_questionnaire_answers_pkg_body.sql     -- pkg_insight_answers body (edit-approval workflow)
-sql/INSIGHT_10_questionnaire_documents.sql            -- insight_client_documents, insight_document_chunks (VECTOR)
-sql/INSIGHT_11_questionnaire_client_sheet_view.sql    -- insight_client_sheet, insight_client_summary views
-sql/INSIGHT_12_questionnaire_seed_questions.sql       -- MERGE-seeds the 91 real questions into insight_questions
+sql/V7__questionnaire_schema.sql               -- insight_questions, insight_clients, insight_client_answers
+sql/V8__questionnaire_answers_pkg.sql          -- insight_answer_change_requests + pkg_insight_answers spec
+sql/V9__questionnaire_answers_pkg_body.sql     -- pkg_insight_answers body (edit-approval workflow)
+sql/V10__questionnaire_documents.sql           -- insight_client_documents, insight_document_chunks (VECTOR)
+sql/V11__questionnaire_client_sheet_view.sql   -- insight_client_sheet, insight_client_summary views
+sql/V12__questionnaire_seed_questions.sql      -- MERGE-seeds the 91 real questions into insight_questions
+sql/V13__seed_locked_question_answers.sql      -- trigger: seeds locked-question answers (e.g. QUAL-GL) on client creation
 ```
 
 Design decisions, in short:
 - **Questions are metadata, not columns.** `insight_questions` drives what
   gets asked; adding a question later is a new row, not a schema change.
-  `INSIGHT_12` seeds this table from the same `ALL_QUESTIONS` array the
-  front end uses, generated programmatically so it can't drift from what
-  the app actually asks -- re-generate it from that source if questions
-  change, don't hand-edit the MERGE.
+  `V12` seeds this table from the same `ALL_QUESTIONS` array the front end
+  uses, generated programmatically so it can't drift from what the app
+  actually asks -- re-generate it from that source if questions change,
+  don't hand-edit the MERGE.
 - **Answers are one row per (client, question)** in `insight_client_answers`,
   not a JSON blob per client, so they're queryable and support per-question
   approval.
@@ -110,6 +136,16 @@ Design decisions, in short:
   exempt (marking "come back to this" isn't a data change worth gating).
   This is the governance workflow from the architecture notes -- it exists
   to catch a value getting quietly changed without a record of who/why.
+- **Locked questions (e.g. `QUAL-GL`) get a real answer row automatically.**
+  `V13`'s `trg_insight_clients_seed_locked` trigger inserts a `'Yes'` answer
+  for every `is_locked = 1` question the moment a client is created.
+  Without this, `insight_client_summary`'s scope-detection EXISTS check
+  (which needs a real `QUAL-GL` row to include GL in the denominator) would
+  never find one, and every GL question -- 18 of them required, out of 29
+  required questions on a GL-only client -- would silently never count
+  toward completion %. Verified directly: inserting a client with zero
+  other answers gives `required_count = 29` immediately (11 phase-1/2 +
+  18 GL), not 11.
 - **Documents live in Object Storage, not the database.**
   `insight_client_documents` only stores a bucket/object pointer + status;
   `insight_document_chunks` holds chunked text and an Oracle 23ai native
@@ -122,6 +158,10 @@ Design decisions, in short:
   `insight_client_summary` is the one-row-per-client management rollup --
   progress %, pending-approval count, document count -- matching the
   three-tier access model in `INSIGHT_Implementation_Architecture_Notes.md`.
+  Its scope-detection subquery casts `answer_value` (CLOB) to
+  `VARCHAR2(10)` before comparing it -- Oracle rejects a bare CLOB used
+  as a comparison key in this join shape (`ORA-22848`), caught by actually
+  running this migration rather than by static review.
 
 Row-level access control (which consultant sees which clients, and the
 management-vs-consultant-vs-implementation-team split) isn't enforced yet --
@@ -140,24 +180,27 @@ install) to run end-to-end.
 ```bash
 cd docker
 cp .env.example .env      # set ORACLE_PASSWORD and APP_USER_PASSWORD
-docker compose up -d
-docker compose logs -f oracle-db   # first boot takes a few minutes
+docker compose up -d oracle-db
+docker compose logs -f oracle-db          # first boot takes a couple minutes
+docker compose --profile migrate run --rm flyway   # applies sql/V1-V13 (skips V6, see above)
 ```
 
-On first boot the container creates an `iteria_ai` app user and then runs
-`sql/INSIGHT_01`-`05` (unmodified, via `docker/initdb/010_insight_schema.sql`)
-against the `FREEPDB1` pluggable database. Once `docker compose ps` shows
-`healthy`, connect as `iteria_ai` / `<APP_USER_PASSWORD>` at
-`localhost:1521/FREEPDB1`. `sql/INSIGHT_06`, `ADMIN_reference_export.sql`,
-and `INSIGHT_ADMIN_cleanup_old_objects.sql` are intentionally not run
-automatically -- they're either ORDS-specific or one-off ADMIN helpers.
+Once `docker compose ps` shows `healthy`, connect as `iteria_ai` /
+`<APP_USER_PASSWORD>` at `localhost:1521/FREEPDB1`. Schema is **not**
+auto-applied on first boot (that was the old `docker/initdb/` wrapper,
+removed in favor of Flyway being the one tracked way scripts get applied,
+for this container and the real ADB alike) -- run the `flyway` command
+above whenever you want the schema present, including after a fresh
+`docker compose down -v`. `sql/INSIGHT_06`, `ADMIN_reference_export.sql`,
+and `INSIGHT_ADMIN_cleanup_old_objects.sql` are intentionally not part of
+that run -- they're either ORDS-specific or one-off ADMIN helpers.
 
 ## Optional: bulk document ingestion
 `python/INSIGHT_oracle_doc_ingestion.py` is a standalone script that walks a
 local folder and writes each file's content into a node's `payload_json` in
 `insight_nodes_26`, round-robining across nodes 1-26. Run it against either
-the local Docker DB above or the real database once `INSIGHT_01`-`05` have
-been applied:
+the local Docker DB above or the real database once `V1`-`V5` have been
+applied:
 
 ```bash
 pip install -r python/INSIGHT_requirements.txt
@@ -170,8 +213,8 @@ python3 python/INSIGHT_oracle_doc_ingestion.py /path/to/docs
 
 If the ADB requires mTLS, set `TNS_ADMIN` to the unzipped wallet directory
 and use the wallet's TNS alias as `ORACLE_SERVICE`. This is a convenience
-utility, not a dependency of `INSIGHT_01`-`06` -- skip it if you don't need
-bulk file ingestion.
+utility, not a dependency of `V1`-`V5` -- skip it if you don't need bulk
+file ingestion.
 
 ## Local web UI (port 8000)
 `docker compose up -d` also starts `insight-web`, a plain nginx container
@@ -194,20 +237,24 @@ repo (or be shared at the org level) or the login step will fail.
 + Python syntax on every push/PR.
 
 ## Directory structure
-- `sql/`: `INSIGHT_01`-`04` schema + package, `INSIGHT_05` seed data,
-  `INSIGHT_06` native ORDS module -- all target ITERIA_AI except `06`
-  (ADMIN, calls into ITERIA_AI). `INSIGHT_07`-`12` are the separate
-  discovery-questionnaire backend (schema, approval workflow, documents,
-  consolidated views, question seed data) -- see "Discovery questionnaire
-  backend" above. `INSIGHT_ADMIN_cleanup_old_objects.sql` is a one-off
-  helper, not part of either numbered sequence.
+- `sql/`: `V1`-`V4` schema + package, `V5` seed data -- all Flyway-tracked,
+  target ITERIA_AI. `V7`-`V13` are the separate discovery-questionnaire
+  backend (schema, approval workflow, documents, consolidated views,
+  question seed data, locked-answer trigger) -- see "Discovery
+  questionnaire backend" above, also Flyway-tracked. `flyway.conf` holds
+  the shared Flyway settings (see "Applying migrations" above).
+  `INSIGHT_06_ords_rest_module.sql` (ADMIN, ORDS metadata),
+  `ADMIN_reference_export.sql`, and `INSIGHT_ADMIN_cleanup_old_objects.sql`
+  are intentionally **not** Flyway-tracked -- one-off/environment-specific,
+  run by hand.
 - `apex/`: static HTML + JS for the APEX page / standalone browser use.
 - `python/`: standalone document-ingestion script (`INSIGHT_oracle_doc_ingestion.py`)
   + `INSIGHT_requirements.txt` -- run directly with python3 against either
   the local Docker DB or the real database. `Dockerfile` packages it as a
   container image, built/published by `.github/workflows/docker-publish.yml`.
-- `docker/`: `docker-compose.yml` + `initdb/` for a local Oracle Database
-  Free container (dev/test only -- no ORDS/APEX). See "Local Docker Oracle
-  DB" above.
+- `docker/`: `docker-compose.yml` for a local Oracle Database Free
+  container (dev/test only -- no ORDS/APEX) plus an opt-in `flyway`
+  service (`--profile migrate`) that applies `sql/V*.sql` against it. See
+  "Local Docker Oracle DB" above.
 - `web/`: `index.html`, a copy of the app UI, served by the `insight-web`
   nginx service on port 8000. See "Local web UI" above.

@@ -1,4 +1,3 @@
-SET DEFINE OFF
 ALTER SESSION SET CURRENT_SCHEMA = ITERIA_AI;
 -- ============================================================================
 -- QUESTIONNAIRE BACKEND: CONSOLIDATED "ONE SHEET PER CLIENT" VIEWS
@@ -119,7 +118,11 @@ CROSS JOIN LATERAL (
                       FROM insight_client_answers qual
                      WHERE qual.client_id = c.client_id
                        AND qual.question_id = 'QUAL-' || q.module_code
-                       AND UPPER(qual.answer_value) = 'YES'
+                       -- answer_value is CLOB; Oracle rejects a CLOB used
+                       -- directly as a comparison key here (ORA-22848).
+                       -- Qualifier answers are always short ("Yes"/"No"),
+                       -- so a bounded VARCHAR2 cast is safe and sufficient.
+                       AND UPPER(CAST(qual.answer_value AS VARCHAR2(10))) = 'YES'
               )
             )
           )

@@ -5,14 +5,22 @@ version: "3.8"
 # README describes (ADMIN-only login, ORDS/APEX already provisioned).
 # ORDS and APEX are NOT included in this image -- sql/INSIGHT_06 (the ORDS
 # REST module) will not run here. Use this container to develop/test the
-# schema, package, and seed data (sql/INSIGHT_01-05) and to run the Python
-# ingestion script locally. See ../INSIGHT_README.md for the full picture,
-# including how to point everything at the real ADB instead.
+# schema, package, and seed data, and to run the Python ingestion script
+# locally. See ../INSIGHT_README.md for the full picture, including how to
+# point everything at the real ADB instead.
 #
 # Usage:
 #   cp .env.example .env      # then edit the password
-#   docker compose up -d
+#   docker compose up -d oracle-db
 #   docker compose logs -f oracle-db     # watch first-boot init (~2-5 min)
+#   docker compose --profile migrate run --rm flyway migrate
+#
+# Schema is no longer auto-applied on first boot (that was the old
+# docker/initdb/ wrapper, now removed) -- Flyway is the one tracked way
+# scripts get applied, for this container and the real ADB alike. The
+# `flyway` service below only runs when explicitly invoked via `--profile
+# migrate`, so a plain `docker compose up -d` just gives you an empty,
+# healthy database.
 #
 # Once healthy, connect as: iteria_ai / <APP_USER_PASSWORD> @ localhost:1521/FREEPDB1
 #
@@ -36,18 +44,34 @@ services:
       # Persist data across container restarts (survives `docker compose down`,
       # not `docker compose down -v`).
       - insight-oracle-data:/opt/oracle/oradata
-      # The original numbered SQL scripts, read-only, referenced by @@ from
-      # the init wrapper below -- not run directly (see initdb/010_*.sql for why).
-      - ../sql:/sql:ro
-      # Init wrapper: switches into FREEPDB1 and runs INSIGHT_01-05 in order.
-      # Only executes on first container start (fresh volume).
-      - ./initdb:/container-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "healthcheck.sh"]
       interval: 10s
       timeout: 5s
       retries: 20
       start_period: 30s
+
+  # Applies sql/V*.sql via Flyway. Opt-in (`--profile migrate`) rather than
+  # part of the default `up`, since re-running migrate isn't something you
+  # want happening implicitly every time you start the stack.
+  flyway:
+    image: flyway/flyway:11
+    container_name: insight-flyway
+    profiles: ["migrate"]
+    depends_on:
+      oracle-db:
+        condition: service_healthy
+    volumes:
+      - ../sql:/flyway/sql:ro
+    command: >
+      -url=jdbc:oracle:thin:@oracle-db:1521/FREEPDB1
+      -user=iteria_ai
+      -password=${APP_USER_PASSWORD:?set APP_USER_PASSWORD in docker/.env}
+      -locations=filesystem:/flyway/sql
+      -sqlMigrationPrefix=V
+      -sqlMigrationSeparator=__
+      -sqlMigrationSuffixes=.sql
+      migrate
 
   insight-web:
     image: nginx:alpine

@@ -1,4 +1,3 @@
-SET DEFINE OFF
 ALTER SESSION SET CURRENT_SCHEMA = ITERIA_AI;
 -- ============================================================================
 -- ORACLE DATABASE SCHEMA A: DATA LAYER

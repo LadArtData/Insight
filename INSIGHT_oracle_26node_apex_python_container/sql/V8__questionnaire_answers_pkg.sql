@@ -1,4 +1,3 @@
-SET DEFINE OFF
 ALTER SESSION SET CURRENT_SCHEMA = ITERIA_AI;
 -- ============================================================================
 -- QUESTIONNAIRE BACKEND: EDIT-APPROVAL WORKFLOW
