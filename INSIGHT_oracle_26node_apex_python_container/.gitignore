@@ -21,6 +21,9 @@ __pycache__/
 .venv/
 venv/
 
+# Node (web/tests) -- package-lock.json IS committed, node_modules is not
+node_modules/
+
 # Docker volume data if ever bind-mounted locally
 docker/oradata/
 

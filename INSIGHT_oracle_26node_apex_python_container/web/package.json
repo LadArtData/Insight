@@ -1,0 +1,12 @@
+{
+  "name": "insight-web-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Regression tests for the INSIGHT questionnaire front end (index.html)",
+  "scripts": {
+    "test": "node --test tests/"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.0"
+  }
+}

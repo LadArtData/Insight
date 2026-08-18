@@ -20,6 +20,19 @@ jobs:
       - name: Verify INSIGHT_app.html and web/index.html are in sync
         run: diff -q INSIGHT_app.html INSIGHT_oracle_26node_apex_python_container/web/index.html
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: INSIGHT_oracle_26node_apex_python_container/web/package-lock.json
+
+      - name: Front-end regression suite
+        working-directory: INSIGHT_oracle_26node_apex_python_container/web
+        run: |
+          npm ci
+          npm test
+
       - name: Compile-check Python ingestion script
         run: python -m py_compile INSIGHT_oracle_26node_apex_python_container/python/INSIGHT_oracle_doc_ingestion.py
 
