@@ -1,7 +1,23 @@
 name: Build and push Insight to OCIR
 
+# Single parameterized workflow replacing the old build.yml /
+# build-manual.yml / build-web.yml / build-combined.yml, which were three
+# near-duplicates plus one variant, differing only in which
+# context/Dockerfile/tags to build. Manual runs pick the target explicitly;
+# the push-triggered case (edits under python/) keeps its original
+# behavior unchanged, defaulting to "python".
+
 on:
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Which image to build and push"
+        type: choice
+        options:
+          - python
+          - web
+          - combined
+        default: python
   push:
     branches: [main]
     paths:
@@ -34,19 +50,56 @@ jobs:
           echo "${{ secrets.OCIR_PASSWORD }}" | docker login bom.ocir.io \
             -u "$USER" --password-stdin
 
+      - name: Set build parameters for the selected target
+        id: params
+        env:
+          TARGET: ${{ github.event.inputs.target || 'python' }}
+        run: |
+          case "$TARGET" in
+            python)
+              echo "context=INSIGHT_oracle_26node_apex_python_container/python" >> "$GITHUB_OUTPUT"
+              echo "file=INSIGHT_oracle_26node_apex_python_container/python/Dockerfile" >> "$GITHUB_OUTPUT"
+              {
+                echo "tags<<EOF"
+                echo "bom.ocir.io/bmi3vxyqnzrv/insight:amd64-insight"
+                echo "bom.ocir.io/bmi3vxyqnzrv/insight/insight:latest"
+                echo "EOF"
+              } >> "$GITHUB_OUTPUT"
+              ;;
+            web)
+              echo "context=INSIGHT_oracle_26node_apex_python_container/web" >> "$GITHUB_OUTPUT"
+              echo "file=INSIGHT_oracle_26node_apex_python_container/web/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "tags=bom.ocir.io/bmi3vxyqnzrv/insight-web:latest" >> "$GITHUB_OUTPUT"
+              ;;
+            combined)
+              echo "context=INSIGHT_oracle_26node_apex_python_container" >> "$GITHUB_OUTPUT"
+              echo "file=INSIGHT_oracle_26node_apex_python_container/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "tags=bom.ocir.io/bmi3vxyqnzrv/insight-app:latest" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unknown target: $TARGET (expected python, web, or combined)" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: INSIGHT_oracle_26node_apex_python_container/python
-          file: INSIGHT_oracle_26node_apex_python_container/python/Dockerfile
+          context: ${{ steps.params.outputs.context }}
+          file: ${{ steps.params.outputs.file }}
           platforms: linux/amd64
           push: true
-          tags: |
-            bom.ocir.io/bmi3vxyqnzrv/insight:amd64-insight
-            bom.ocir.io/bmi3vxyqnzrv/insight/insight:latest
+          tags: ${{ steps.params.outputs.tags }}
 
       - name: Summary
+        env:
+          TARGET: ${{ github.event.inputs.target || 'python' }}
+          TAGS: ${{ steps.params.outputs.tags }}
         run: |
-          echo "Pushed bom.ocir.io/bmi3vxyqnzrv/insight:amd64-insight"
-          echo "Note: Insight's main product is SQL/APEX/ORDS under sql/ and apex/."
-          echo "This image is only the optional Python doc-ingestion helper."
+          echo "Target: $TARGET"
+          echo "Pushed:"
+          echo "$TAGS" | sed 's/^/  /'
+          if [ "$TARGET" = "python" ]; then
+            echo "Note: Insight's main product is SQL/APEX/ORDS under sql/ and apex/."
+            echo "This image is only the optional Python doc-ingestion helper."
+          fi
