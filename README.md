@@ -11,7 +11,11 @@ It ships as three deliverables, each independently deployable:
 |---|---|---|
 | **Database** | Schema, PL/SQL packages and an ORDS REST module | Oracle Autonomous Database |
 | **APEX** | Static page assets for the 26-node EDL matrix | APEX Static Application Files |
-| **Container** | The discovery questionnaire web app, plus a bundled document-ingestion utility | Any container host (built and published to OCIR by CI) |
+| **Container** | Questionnaire at `/`, matrix at `/matrix.html`, plus a bundled document-ingestion utility | Any container host (built and published to OCIR by CI) |
+
+APEX is optional: the container serves the same matrix page and proxies
+its REST calls to ORDS, so both features can run from the container alone.
+What APEX provides that the container does not is authentication.
 
 Nothing here depends on a developer workstation: the database objects are
 applied by Flyway, the APEX assets are uploaded to APEX, and the container

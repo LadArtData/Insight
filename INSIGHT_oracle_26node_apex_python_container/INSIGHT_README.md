@@ -100,6 +100,48 @@ Reference the JS from Shared Components > Static Application Files
   the same origin as ORDS, or if `iteria_ai.api_configuration` has an
   active key.
 
+## Running the matrix without APEX
+APEX is not required. The combined container image serves the same two
+files and proxies the REST calls, so the matrix runs entirely from the
+container:
+
+- Questionnaire: `http://<host>:8000/`
+- 26-node matrix: `http://<host>:8000/matrix.html`
+
+The image copies `apex/INSIGHT_apex_ai_matrix_26.{html,js}` verbatim —
+there is no container-specific variant to keep in sync. The page's
+`INSIGHT_CONFIG` block is commented out, and the script falls back to
+same-origin `/ords/admin/insight-hooks` whenever `apex.server` is absent,
+which is exactly what the container's nginx proxies.
+
+Configure the proxy with two environment variables:
+
+| Variable | Required | Value |
+|---|---|---|
+| `ORDS_BASE_URL` | to reach ORDS | `scheme://host` of the ORDS server, **no path**, e.g. `https://abc-insight.adb.us-ashburn-1.oraclecloudapps.com` |
+| `ORDS_API_KEY` | only if a key is active | Matching value from `iteria_ai.api_configuration` |
+
+```bash
+docker run -p 8000:8000 \
+  -e ORDS_BASE_URL=https://<db>-<name>.adb.<region>.oraclecloudapps.com \
+  -e ORDS_API_KEY=<key> \
+  bom.ocir.io/bmi3vxyqnzrv/insight-app:latest
+```
+
+Both are optional. With neither set the site still serves and `/ords/`
+returns a 503 explaining that it is unconfigured — an unreachable database
+is not a reason to take the whole container down.
+
+The api_key is attached by nginx, server-side. The REST module accepts it
+as a query parameter, so a browser-held key would otherwise be readable in
+page source, the network tab, and every access log along the way. The
+front end sends no key at all; access logging is disabled on `/ords/` so
+this container doesn't record it either.
+
+What APEX still provides that the container does not is authentication.
+Nothing in the container path authenticates anyone — see the status note
+in the top-level README.
+
 ## Discovery questionnaire backend (V7-V13)
 `INSIGHT_app.html` (the client discovery questionnaire) has no real backend
 wired up yet -- its `window.storage` fallback is in-memory only (per

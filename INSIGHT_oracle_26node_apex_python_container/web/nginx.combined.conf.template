@@ -1,0 +1,73 @@
+# Template for the COMBINED image's nginx config. Rendered to
+# /etc/nginx/conf.d/default.conf at container start by docker-entrypoint.py,
+# which substitutes the double-underscore tokens below from environment
+# variables. It is a template rather than a static file because the ORDS
+# host and API key are environment-specific and must never be baked into
+# an image.
+#
+# The web/Dockerfile image uses web/nginx.standalone.conf instead: it is
+# based on nginx:alpine and has no interpreter available to render this.
+#
+# Substituted tokens:
+#   __RESOLVER__        DNS server, read from /etc/resolv.conf at startup
+#   __ORDS_BASE_URL__   scheme://host of the ORDS server, no path, may be empty
+#   __ORDS_API_KEY__    api_key for the insight-hooks module, may be empty
+
+server {
+    listen 8000;
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # ---- ORDS reverse proxy -------------------------------------------
+    # Lets the browser reach the insight-hooks REST module through this
+    # origin instead of calling the database host directly. Two reasons:
+    #
+    #  1. Same-origin, so there is no CORS preflight to configure on ORDS.
+    #  2. The api_key is attached here, server-side. The module takes it as
+    #     a query parameter, so a browser-side key would be readable in
+    #     page source, the network tab, and every access log in between.
+    #     The front end sends no key at all; this adds it in transit.
+    #
+    # proxy_pass uses a variable deliberately. With a literal hostname
+    # nginx resolves at config-parse time and REFUSES TO START if the name
+    # does not resolve -- which is exactly how this container died once
+    # before. Going through a variable defers resolution to request time,
+    # so a misconfigured or unreachable ORDS host degrades to a 502 on
+    # /ords/ while the questionnaire and matrix keep being served.
+    location /ords/ {
+        resolver __RESOLVER__ valid=30s ipv6=off;
+
+        set $ords_base "__ORDS_BASE_URL__";
+        set $ords_key  "__ORDS_API_KEY__";
+
+        # Unconfigured is a normal state (the UI works without ORDS), so
+        # answer honestly rather than emitting a confusing 502.
+        if ($ords_base = "") {
+            return 503 '{"ok":false,"error":"ORDS_BASE_URL is not set on this container"}';
+        }
+
+        set $fwd_args $args;
+        if ($ords_key != "") {
+            set $fwd_args "$args&api_key=$ords_key";
+        }
+
+        proxy_pass $ords_base$uri?$fwd_args;
+
+        # Needed for TLS to the ORDS host: without SNI, Oracle's endpoint
+        # cannot select the right certificate and the handshake fails.
+        proxy_ssl_server_name on;
+
+        proxy_read_timeout 60s;
+        client_max_body_size 64k;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # The key is a credential: keep it out of this container's logs too.
+        access_log off;
+    }
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}
