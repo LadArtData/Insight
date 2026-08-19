@@ -6,5 +6,8 @@
 # Container Instance without needing a separate port-remap step.
 FROM nginx:alpine
 COPY index.html /usr/share/nginx/html/index.html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# nginx.standalone.conf, NOT nginx.conf -- nginx.conf's /api/chat upstream
+# ("chat-proxy") only resolves inside docker-compose, and an unresolvable
+# upstream is fatal at nginx startup, not a warning. See that file's header.
+COPY nginx.standalone.conf /etc/nginx/conf.d/default.conf
 EXPOSE 8000

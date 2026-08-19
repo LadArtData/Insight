@@ -21,7 +21,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY web/index.html /usr/share/nginx/html/index.html
-COPY web/nginx.conf /etc/nginx/conf.d/default.conf
+# nginx.standalone.conf, NOT nginx.conf: the latter proxies /api/chat to a
+# host named "chat-proxy" that only exists inside docker-compose. nginx
+# resolves upstream hostnames at startup, so using it here kills the
+# container with [emerg] host not found in upstream "chat-proxy". See the
+# header of nginx.standalone.conf for the full reasoning.
+COPY web/nginx.standalone.conf /etc/nginx/conf.d/default.conf
 
 # --- ingestion script, for on-demand `docker exec` use ---
 WORKDIR /app
