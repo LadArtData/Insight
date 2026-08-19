@@ -6,7 +6,7 @@
   Shared Components > Static Application Files
   (#APP_FILES#INSIGHT_apex_ai_matrix_26.js).
   This file also renders standalone in any browser, in which case the JS
-  talks directly to the native ORDS module (/insight-hooks/) instead of
+  talks directly to the native ORDS module (/insight/) instead of
   apex.server.process. Both paths call the same live PL/SQL package --
   neither path fabricates data.
 -->
@@ -69,9 +69,9 @@
 
     <!--
       Only needed for the standalone (non-APEX) path if this file is not
-      served from the same origin as ORDS, or if the insight-hooks module
-      requires an api_key (see sql/INSIGHT_06_ords_rest_module.sql).
-    <script>window.INSIGHT_CONFIG = { ordsBaseUrl: "https://<db>-<tenancy>.adb.<region>.oraclecloudapps.com/ords/admin/insight-hooks", boardId: 1, apiKey: "..." };</script>
+      served from the same origin as ORDS, or if the insight module
+      requires an api_key (see sql/INSIGHT_06_ords_module.sql).
+    <script>window.INSIGHT_CONFIG = { ordsBaseUrl: "https://<db>-<tenancy>.adb.<region>.oraclecloudapps.com/ords/admin/insight", boardId: 1, apiKey: "..." };</script>
     -->
     <script src="INSIGHT_apex_ai_matrix_26.js"></script>
 </body>

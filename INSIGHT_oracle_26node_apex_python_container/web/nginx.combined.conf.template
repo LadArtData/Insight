@@ -11,7 +11,7 @@
 # Substituted tokens:
 #   __RESOLVER__        DNS server, read from /etc/resolv.conf at startup
 #   __ORDS_BASE_URL__   scheme://host of the ORDS server, no path, may be empty
-#   __ORDS_API_KEY__    api_key for the insight-hooks module, may be empty
+#   __ORDS_API_KEY__    api_key for the insight module, may be empty
 
 server {
     listen 8000;
@@ -20,7 +20,7 @@ server {
     index index.html;
 
     # ---- ORDS reverse proxy -------------------------------------------
-    # Lets the browser reach the insight-hooks REST module through this
+    # Lets the browser reach the insight REST module through this
     # origin instead of calling the database host directly. Two reasons:
     #
     #  1. Same-origin, so there is no CORS preflight to configure on ORDS.

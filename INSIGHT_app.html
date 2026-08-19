@@ -438,7 +438,7 @@
   //
   // Two implementations, chosen at startup:
   //
-  //   1. ORDS-backed. Talks to the insight-questionnaire module
+  //   1. ORDS-backed. Talks to the insight module
   //      (sql/INSIGHT_07_ords_questionnaire_module.sql) through the
   //      container's nginx, which proxies /ords/ and attaches the api_key
   //      server-side. Records persist in Oracle and are shared across
@@ -453,7 +453,7 @@
   // discovery answers and this app still has no authentication, so writing
   // them to disk in a browser profile creates an exposure that a failed
   // health check should not silently opt someone into.
-  var STORAGE_API_BASE = (window.INSIGHT_API_BASE || "/ords/admin/insight-questionnaire").replace(/\/$/, "");
+  var STORAGE_API_BASE = (window.INSIGHT_API_BASE || "/ords/admin/insight").replace(/\/$/, "");
   var storageMode = "memory"; // upgraded to "ords" if the probe below succeeds
 
   function makeMemoryStorage() {

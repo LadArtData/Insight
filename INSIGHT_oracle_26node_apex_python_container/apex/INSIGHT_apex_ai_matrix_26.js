@@ -9,14 +9,14 @@
  *      'GET_MATRIX_STATE', ...) runs the Application Processes that call
  *      pkg_insight_board_engine.
  *   2. Outside APEX: fetch() calls the native ORDS module defined in
- *      sql/INSIGHT_06_ords_rest_module.sql (base path /insight-hooks/),
+ *      sql/INSIGHT_06_ords_module.sql (base path /insight/),
  *      registered under ADMIN -- there is only one Oracle login in this
  *      environment -- which reaches into ITERIA_AI for the real call, so
  *      there's no separate application server to stand up.
  *
  * Set window.INSIGHT_CONFIG = { ordsBaseUrl: '...' } before this script
  * loads to point path 2 at your ORDS instance, e.g.
- * "https://<db>-<tenancy>.adb.<region>.oraclecloudapps.com/ords/admin/insight-hooks".
+ * "https://<db>-<tenancy>.adb.<region>.oraclecloudapps.com/ords/admin/insight".
  * Defaults to a same-origin relative path, which works if this file is
  * served from the same domain as ORDS.
  */
@@ -24,7 +24,7 @@
     "use strict";
 
     var config = global.INSIGHT_CONFIG || {};
-    var ORDS_BASE = (config.ordsBaseUrl || "/ords/admin/insight-hooks").replace(/\/$/, "");
+    var ORDS_BASE = (config.ordsBaseUrl || "/ords/admin/insight").replace(/\/$/, "");
     var BOARD_ID = config.boardId || 1;
     var API_KEY = config.apiKey || null;
 
@@ -68,7 +68,7 @@
         init: function () {
             this.renderGridSkeleton();
             var badge = document.getElementById("env-badge");
-            if (badge) badge.innerText = inApexRuntime() ? "LIVE — Oracle APEX Runtime" : "LIVE — Native ORDS (insight-hooks)";
+            if (badge) badge.innerText = inApexRuntime() ? "LIVE — Oracle APEX Runtime" : "LIVE — Native ORDS (insight)";
             this.loadMatrixState();
         },
 
@@ -113,7 +113,7 @@
                 .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
                 .then(function (r) {
                     if (!r.ok || !r.body.ok) throw new Error((r.body && r.body.error) || "request failed");
-                    addLog("Loaded live matrix state from /insight-hooks/matrix/" + ApexAIMatrix.boardId + ".");
+                    addLog("Loaded live matrix state from /insight/matrix/" + ApexAIMatrix.boardId + ".");
                     ApexAIMatrix.updateUI(r.body.nodes);
                 })
                 .catch(function (err) {
@@ -166,7 +166,7 @@
                 .then(function (res) { return res.json().then(function (body) { return { ok: res.ok, body: body }; }); })
                 .then(function (r) {
                     if (!r.ok || !r.body.ok) throw new Error((r.body && r.body.error) || "request failed");
-                    addLog("Writeback succeeded for Node #" + nodeId + " via /insight-hooks/nodes/" + nodeId + "/trigger.");
+                    addLog("Writeback succeeded for Node #" + nodeId + " via /insight/nodes/" + nodeId + "/trigger.");
                     ApexAIMatrix.updateUI(r.body.nodes);
                 })
                 .catch(function (err) {

@@ -412,7 +412,7 @@ function fakeFetch(routes, calls) {
   };
 }
 
-const API = "/ords/admin/insight-questionnaire";
+const API = "/ords/admin/insight";
 
 test("storage: uses the ORDS backend when the probe succeeds", async () => {
   const calls = [];
@@ -491,7 +491,7 @@ test("storage: falls back to memory when the backend is unreachable", async () =
   win.close();
 });
 
-// A stateful fake of the insight-questionnaire ORDS module -- not just
+// A stateful fake of the insight ORDS module -- not just
 // canned responses, but an actual small in-memory store behind the same
 // four routes, including the same approval-workflow rule the real
 // pkg_insight_answers.record_answer enforces (V9): the first value written

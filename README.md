@@ -45,7 +45,7 @@ Detailed deployment instructions live in
 ## The two features
 
 **26-node EDL matrix** — `V1`–`V5` plus `INSIGHT_06`, surfaced through the
-APEX page and the `insight-hooks` ORDS module. Event-driven logic runs in
+APEX page and the `insight` ORDS module. Event-driven logic runs in
 `pkg_insight_board_engine` inside the database; no application server sits
 in front of it.
 
@@ -72,7 +72,7 @@ Requirements: an Oracle Autonomous Database with ORDS and APEX
 provisioned, Docker, and Node.js 22 for the test suite.
 
 1. Apply the database migrations with Flyway (see `sql/flyway.conf`), then
-   run `sql/INSIGHT_06_ords_rest_module.sql` as ADMIN to register the REST
+   run `sql/INSIGHT_06_ords_module.sql` as ADMIN to register the REST
    endpoints.
 2. Upload `apex/` to APEX Static Application Files.
 3. Run the container, or bring up the local stack with
@@ -95,10 +95,11 @@ that the Python services compile and pass their unit tests.
 
 ## Status
 
-The questionnaire front end and the database schema are built and tested.
-The application is **not production-ready**: it has no authentication, no
-TLS, and the front end is not yet wired to the database — answers do not
-persist beyond a browser session. Those are the next milestones.
+The questionnaire front end, the database schema and the REST layer between
+them are built and tested; answers persist to Oracle. The application is
+still **not production-ready**: it has no authentication and no TLS, so
+anyone who can reach the host can read and write every client record.
+Those are the next milestones.
 
 ## License
 

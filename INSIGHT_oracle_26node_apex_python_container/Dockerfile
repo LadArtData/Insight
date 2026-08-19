@@ -26,7 +26,7 @@ COPY web/index.html /usr/share/nginx/html/index.html
 # files uploaded to APEX Static Application Files. No container-specific
 # variant exists, so the two deployments cannot drift: the page's
 # INSIGHT_CONFIG block is commented out, and the script falls back to
-# same-origin /ords/admin/insight-hooks whenever apex.server is absent,
+# same-origin /ords/admin/insight whenever apex.server is absent,
 # which is precisely what the proxy below serves.
 COPY apex/INSIGHT_apex_ai_matrix_26.html /usr/share/nginx/html/matrix.html
 COPY apex/INSIGHT_apex_ai_matrix_26.js /usr/share/nginx/html/INSIGHT_apex_ai_matrix_26.js

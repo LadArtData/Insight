@@ -44,7 +44,7 @@ run `flyway baseline -baselineVersion=5` once first -- this tells Flyway
 database. (Baseline at 5, not 6, since V6 was never Flyway-tracked.) After
 that, a normal `flyway migrate` applies anything newer.
 
-`sql/INSIGHT_06_ords_rest_module.sql` and
+`sql/INSIGHT_06_ords_module.sql` and
 `sql/INSIGHT_ADMIN_cleanup_old_objects.sql` are deliberately excluded from
 every migrate run above (their filenames don't match `V<n>__...`) -- run
 them by hand, connected as ADMIN, when their specific circumstance applies.
@@ -69,17 +69,24 @@ Already ran `INSIGHT_01`/`02` once under ADMIN before this rename? Run
 those orphaned `AI_*` copies -- it's safe to run even if some objects were
 never created.
 
-`INSIGHT_06` uses the standard `ORDS.DEFINE_MODULE` / `DEFINE_TEMPLATE` /
-`DEFINE_HANDLER` pattern: `plsql/block` handlers, an api_key check against
-`iteria_ai.api_configuration`, `:body_text` + `JSON_VALUE` for POST
-bodies, `APEX_JSON.STRINGIFY` for output, and `:status` for HTTP codes.
-Once run, it publishes:
+`INSIGHT_06` defines a single ORDS module, `insight`, covering everything
+the product exposes over REST — both the matrix and the questionnaire —
+under one base path. It uses the standard `ORDS.DEFINE_MODULE` /
+`DEFINE_TEMPLATE` / `DEFINE_HANDLER` pattern: `plsql/block` handlers, an
+api_key check against `iteria_ai.api_configuration`, `:body_text` +
+`JSON_VALUE` for POST bodies, and `:status` for HTTP codes.
 
 ```
-GET  /ords/admin/insight-hooks/health
-GET  /ords/admin/insight-hooks/matrix/{board_id}
-POST /ords/admin/insight-hooks/nodes/{node_id}/trigger
+GET  /ords/admin/insight/health
+GET  /ords/admin/insight/matrix/{board_id}
+POST /ords/admin/insight/nodes/{node_id}/trigger
 ```
+
+An earlier revision split this across two modules, `insight-hooks` and
+`insight-questionnaire`. That put one product behind two base paths and
+two ORDS catalog entries for no benefit. `INSIGHT_06` drops both if it
+finds them, so running it on a database that has them is the migration —
+no manual cleanup required, and re-running it is safe.
 
 Neither this module nor the APEX static files fabricate data -- every
 response comes from a real call into `iteria_ai.pkg_insight_board_engine`.
@@ -101,19 +108,13 @@ Reference the JS from Shared Components > Static Application Files
   active key.
 
 ## REST layer for the questionnaire
-`sql/INSIGHT_07_ords_questionnaire_module.sql` publishes the questionnaire
-tables. `INSIGHT_06` covers only the 26-node matrix, so without this module
-nothing exposes `insight_clients` or `insight_client_answers` and the front
-end has no backend to talk to.
-
-Run it as ADMIN after `V7`–`V13` are applied. Like `INSIGHT_06` it is ORDS
-metadata rather than a schema migration, so it is not Flyway-tracked.
+The same `insight` module publishes the questionnaire tables:
 
 ```
-GET    /ords/admin/insight-questionnaire/clients
-GET    /ords/admin/insight-questionnaire/clients/:client_id
-PUT    /ords/admin/insight-questionnaire/clients/:client_id
-DELETE /ords/admin/insight-questionnaire/clients/:client_id
+GET    /ords/admin/insight/clients
+GET    /ords/admin/insight/clients/:client_id
+PUT    /ords/admin/insight/clients/:client_id
+DELETE /ords/admin/insight/clients/:client_id
 ```
 
 `GET clients/:client_id` reassembles the normalized rows into the exact
@@ -159,11 +160,11 @@ somewhere that reaches ORDS on a different path.
 Verify after installing:
 
 ```bash
-curl -s "$ORDS/insight-questionnaire/clients"
-curl -s -X PUT "$ORDS/insight-questionnaire/clients/test-001" \
+curl -s "$ORDS/insight/clients"
+curl -s -X PUT "$ORDS/insight/clients/test-001" \
   -H 'Content-Type: application/json' \
   -d '{"companyName":"Test Co","answers":{"INTAKE-001":"Test Co"},"skipped":{}}'
-curl -s "$ORDS/insight-questionnaire/clients/test-001"
+curl -s "$ORDS/insight/clients/test-001"
 ```
 
 ## Running the matrix without APEX
@@ -177,7 +178,7 @@ container:
 The image copies `apex/INSIGHT_apex_ai_matrix_26.{html,js}` verbatim —
 there is no container-specific variant to keep in sync. The page's
 `INSIGHT_CONFIG` block is commented out, and the script falls back to
-same-origin `/ords/admin/insight-hooks` whenever `apex.server` is absent,
+same-origin `/ords/admin/insight` whenever `apex.server` is absent,
 which is exactly what the container's nginx proxies.
 
 Configure the proxy with two environment variables:
@@ -375,7 +376,7 @@ compile-checks the Python, and validates the compose file.
   question seed data, locked-answer trigger) -- see "Discovery
   questionnaire backend" above, also Flyway-tracked. `flyway.conf` holds
   the shared Flyway settings (see "Applying migrations" above).
-  `INSIGHT_06_ords_rest_module.sql` (ADMIN, ORDS metadata) and
+  `INSIGHT_06_ords_module.sql` (ADMIN, ORDS metadata) and
   `INSIGHT_ADMIN_cleanup_old_objects.sql` are intentionally **not**
   Flyway-tracked -- one-off/environment-specific, run by hand.
 - `apex/`: static HTML + JS for the APEX page / standalone browser use.
