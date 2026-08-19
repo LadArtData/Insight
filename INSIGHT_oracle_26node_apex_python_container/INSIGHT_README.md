@@ -136,6 +136,26 @@ The response reports what happened:
 `DELETE` archives (`status = 'ARCHIVED'`) rather than deleting, so answer
 history survives. `GET clients` lists only ACTIVE rows.
 
+### How the front end selects its store
+At startup the app probes `GET /clients` once and picks a backing store for
+`window.storage` based on the result. Every call site goes through that one
+interface, so nothing else in the app changes between modes:
+
+| Probe result | Store | Records screen says |
+|---|---|---|
+| Returns JSON | ORDS | "Saved to the Insight database…" |
+| Fails, blocked, or not JSON | In-memory | "Not connected to the records database…" |
+
+Falling back rather than failing means a container without `ORDS_BASE_URL`,
+or one pointed at a database where this module has not been installed,
+still runs the questionnaire instead of showing an error. The fallback is
+deliberately not `localStorage`: these are real client answers and there is
+still no authentication, so a failed probe must not quietly start writing
+them to disk in a browser profile.
+
+Override the base path with `window.INSIGHT_API_BASE` if the app is served
+somewhere that reaches ORDS on a different path.
+
 Verify after installing:
 
 ```bash

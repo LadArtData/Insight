@@ -26,8 +26,14 @@ function countModuleQuestions(moduleCode) {
 
 // Boots a fresh app instance and advances past the loading screen to
 // Client Records -- every test starts from here.
-async function bootApp() {
-  const dom = new JSDOM(HTML, { url: "http://localhost/", runScripts: "dangerously" });
+async function bootApp(beforeParse) {
+  const dom = new JSDOM(HTML, {
+    url: "http://localhost/",
+    runScripts: "dangerously",
+    // Lets a test install a fake fetch before the app script runs, which is
+    // the only window in which the storage-mode probe can be influenced.
+    beforeParse: typeof beforeParse === "function" ? beforeParse : undefined,
+  });
   const { window } = dom;
   // jsdom doesn't implement the Blob/URL download path (used by D2's
   // export) -- polyfill so the app's own click-download wiring can be
@@ -381,4 +387,106 @@ test("quality check: normal multi-word answers never trigger the warning", async
   byId(win, "btn-new-client").click();
   await fillIntake(win); // fillIntake's "answer 0".."answer 9" are all multi-word/short -- none should ever warn
   assert.equal(byId(win, "q-quality-warning").classList.contains("show"), false);
+});
+
+// ---------------------------------------------------------------------------
+// ORDS-backed storage. The app probes /clients at startup and only upgrades
+// off the in-memory store if that call returns JSON, so these tests install a
+// fake fetch before the app script parses.
+// ---------------------------------------------------------------------------
+
+function fakeFetch(routes, calls) {
+  return function (url, opts) {
+    const method = (opts && opts.method) || "GET";
+    calls.push({ method, url, body: opts && opts.body });
+    const key = method + " " + String(url).replace("http://localhost", "");
+    const handler = routes[key];
+    if (!handler) return Promise.reject(new Error("no route for " + key));
+    const payload = handler();
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve(payload),
+      text: () => Promise.resolve(JSON.stringify(payload)),
+    });
+  };
+}
+
+const API = "/ords/admin/insight-questionnaire";
+
+test("storage: uses the ORDS backend when the probe succeeds", async () => {
+  const calls = [];
+  const dom = await bootApp((win) => {
+    win.fetch = fakeFetch({
+      [`GET ${API}/clients`]: () => ([
+        { id: "c-1", companyName: "Meridian", updatedAt: "2026-08-19T10:00:00Z" },
+      ]),
+    }, calls);
+  });
+  const win = dom.window;
+  await wait(60);
+
+  assert.ok(calls.some((c) => c.method === "GET" && c.url.endsWith(`${API}/clients`)),
+    "should have probed the clients endpoint");
+  const note = byId(win, "records-note").textContent;
+  assert.match(note, /Saved to the Insight database/,
+    "records note should report the database is connected");
+  assert.match(byId(win, "records-list-area").textContent, /Meridian/,
+    "client list should render rows returned by the API");
+  win.close();
+});
+
+test("storage: saving a client PUTs to the ORDS endpoint", async () => {
+  const calls = [];
+  const dom = await bootApp((win) => {
+    win.fetch = fakeFetch({
+      [`GET ${API}/clients`]: () => ([]),
+      [`PUT ${API}/clients/anything`]: () => ({ ok: true }),
+    }, calls);
+  });
+  const win = dom.window;
+  await wait(60);
+
+  // Route every PUT regardless of the generated client id.
+  win.fetch = (url, opts) => {
+    const method = (opts && opts.method) || "GET";
+    calls.push({ method, url, body: opts && opts.body });
+    return Promise.resolve({
+      ok: true, status: 200,
+      json: () => Promise.resolve({ ok: true }),
+      text: () => Promise.resolve('{"ok":true}'),
+    });
+  };
+
+  byId(win, "btn-new-client").click();
+  await wait(30);
+  fillText(win, "Meridian County");
+  await clickNext(win);
+  await wait(60);
+
+  const puts = calls.filter((c) => c.method === "PUT");
+  assert.ok(puts.length > 0, "answering a question should PUT the client record");
+  assert.match(puts[0].url, new RegExp(`${API}/clients/`), "PUT should target the clients resource");
+  const sent = JSON.parse(puts[0].body);
+  assert.equal(sent.answers["INTAKE-001"], "Meridian County",
+    "the answer should be in the PUT body");
+  assert.ok("skipped" in sent, "the PUT body should carry the skipped map");
+  win.close();
+});
+
+test("storage: falls back to memory when the backend is unreachable", async () => {
+  const dom = await bootApp((win) => {
+    win.fetch = () => Promise.reject(new Error("connection refused"));
+  });
+  const win = dom.window;
+  await wait(60);
+
+  assert.match(byId(win, "records-note").textContent, /Not connected to the records database/,
+    "records note should say it is not connected");
+  // And the app must still work rather than erroring out.
+  byId(win, "btn-new-client").click();
+  await wait(30);
+  assert.ok(byId(win, "screen-questionnaire").classList.contains("active"),
+    "questionnaire should still start when the backend is down");
+  win.close();
 });

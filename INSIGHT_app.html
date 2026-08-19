@@ -306,7 +306,7 @@
       <div id="records-list-area">
         <div class="records-loading">Loading client records…</div>
       </div>
-      <p class="records-note">Nothing here is saved yet — client records exist only for this browser session and are lost on reload. Persistent, secured storage is coming once this connects to the real backend.</p>
+      <p class="records-note" id="records-note">Checking for the records database…</p>
     </div>
   </div>
 
@@ -415,22 +415,34 @@
 (function () {
   "use strict";
 
-  // ---------------- window.storage fallback ----------------
-  // This file expects a host-provided window.storage.{get,set,delete}(key, shared)
-  // API (async, matching the calls below). When opened directly in a plain
-  // browser (double-clicked, no host platform), that API doesn't exist --
-  // so we polyfill it with an in-memory store.
+  // ---------------- window.storage ----------------
+  // Everything above the "Storage helpers" section talks to
+  // window.storage.{get,set,delete}(key, shared) and nothing else, so the
+  // backing store is swappable without touching any call site.
   //
-  // Deliberately NOT backed by localStorage: this app has no real backend
-  // yet (no auth, no encryption, no access control), and client discovery
-  // answers are real business/client data. Persisting that to disk in a
-  // browser profile -- even "just locally" -- is exactly the exposure this
-  // fallback should not create. Client records exist only for the current
-  // page session (gone on reload or tab close) until a secured backend
-  // exists to actually store them. See INSIGHT_README.md.
-  if (!window.storage) {
+  // Two implementations, chosen at startup:
+  //
+  //   1. ORDS-backed. Talks to the insight-questionnaire module
+  //      (sql/INSIGHT_07_ords_questionnaire_module.sql) through the
+  //      container's nginx, which proxies /ords/ and attaches the api_key
+  //      server-side. Records persist in Oracle and are shared across
+  //      everyone using that deployment.
+  //
+  //   2. In-memory. Used when the API is unreachable: opening this file
+  //      directly from disk, or a deployment where the ORDS module has not
+  //      been installed or ORDS_BASE_URL is not configured. Records last
+  //      for the page session only.
+  //
+  // The fallback is deliberately NOT localStorage. These are real client
+  // discovery answers and this app still has no authentication, so writing
+  // them to disk in a browser profile creates an exposure that a failed
+  // health check should not silently opt someone into.
+  var STORAGE_API_BASE = (window.INSIGHT_API_BASE || "/ords/admin/insight-questionnaire").replace(/\/$/, "");
+  var storageMode = "memory"; // upgraded to "ords" if the probe below succeeds
+
+  function makeMemoryStorage() {
     var memoryStore = Object.create(null);
-    window.storage = {
+    return {
       get: function (key) {
         return new Promise(function (resolve, reject) {
           if (!(key in memoryStore)) { reject(new Error("Key not found: " + key)); return; }
@@ -438,19 +450,80 @@
         });
       },
       set: function (key, value) {
-        return new Promise(function (resolve) {
-          memoryStore[key] = value;
-          resolve();
-        });
+        return new Promise(function (resolve) { memoryStore[key] = value; resolve(); });
       },
       delete: function (key) {
-        return new Promise(function (resolve) {
-          delete memoryStore[key];
-          resolve();
-        });
+        return new Promise(function (resolve) { delete memoryStore[key]; resolve(); });
       }
     };
   }
+
+  // Maps the key-value contract onto the REST resources. "clients-index"
+  // is derived server-side from the client rows, so writing it is a no-op
+  // rather than a second source of truth that could disagree with them.
+  function makeOrdsStorage() {
+    function clientIdFromKey(key) {
+      return key.indexOf("client:") === 0 ? key.slice("client:".length) : null;
+    }
+    async function request(method, path, body) {
+      var opts = { method: method, headers: { "Accept": "application/json" } };
+      if (body !== undefined) {
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = body;
+      }
+      var res = await fetch(STORAGE_API_BASE + path, opts);
+      if (!res.ok) throw new Error(method + " " + path + " failed: " + res.status);
+      var text = await res.text();
+      return text ? JSON.parse(text) : null;
+    }
+    return {
+      get: async function (key) {
+        if (key === CLIENTS_INDEX_KEY) {
+          var list = await request("GET", "/clients");
+          return { value: JSON.stringify(list || []) };
+        }
+        var id = clientIdFromKey(key);
+        if (!id) throw new Error("Key not found: " + key);
+        var record = await request("GET", "/clients/" + encodeURIComponent(id));
+        if (!record) throw new Error("Key not found: " + key);
+        return { value: JSON.stringify(record) };
+      },
+      set: async function (key, value) {
+        if (key === CLIENTS_INDEX_KEY) return; // server derives the roster
+        var id = clientIdFromKey(key);
+        if (!id) return;
+        await request("PUT", "/clients/" + encodeURIComponent(id), value);
+      },
+      delete: async function (key) {
+        var id = clientIdFromKey(key);
+        if (!id) return;
+        await request("DELETE", "/clients/" + encodeURIComponent(id));
+      }
+    };
+  }
+
+  // A host platform that already provides window.storage wins over both.
+  var hostProvidedStorage = !!window.storage;
+  if (!hostProvidedStorage) window.storage = makeMemoryStorage();
+
+  // Probe once, before any screen renders, so the records screen can say
+  // truthfully which mode is in effect instead of guessing.
+  async function initStorageMode() {
+    if (hostProvidedStorage) { storageMode = "host"; return; }
+    if (typeof fetch !== "function") return;
+    try {
+      var res = await fetch(STORAGE_API_BASE + "/clients", { method: "GET", headers: { "Accept": "application/json" } });
+      if (!res.ok) return;
+      await res.json(); // a proxy error page can return 200 with non-JSON
+      window.storage = makeOrdsStorage();
+      storageMode = "ords";
+    } catch (err) {
+      // Unreachable, blocked, or not JSON -- stay on the in-memory store.
+    }
+  }
+  // Kicked off immediately; every read awaits this so the first render
+  // already knows which store it is talking to.
+  var storageReady = initStorageMode();
 
   var app = document.getElementById("app");
   var screens = {
@@ -831,9 +904,25 @@
     }
   }
 
+  // States the actual storage mode rather than a fixed caveat, so the
+  // screen can't keep claiming nothing is saved after the backend is live.
+  function updateStorageNote() {
+    var note = document.getElementById("records-note");
+    if (!note) return;
+    if (storageMode === "ords") {
+      note.textContent = "Saved to the Insight database — records persist and are shared across everyone using this deployment. Note this deployment has no sign-in yet.";
+    } else if (storageMode === "host") {
+      note.textContent = "Saved through the host platform's storage.";
+    } else {
+      note.textContent = "Not connected to the records database — client records exist only for this browser session and are lost on reload.";
+    }
+  }
+
   async function renderRecordsScreen() {
     var area = document.getElementById("records-list-area");
     area.innerHTML = '<div class="records-loading">Loading client records…</div>';
+    await storageReady;
+    updateStorageNote();
     var list;
     try {
       list = await getClientIndex();
