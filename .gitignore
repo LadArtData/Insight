@@ -1,15 +1,15 @@
-# This "Insight" OneDrive folder holds a lot more than the GitHub repo --
-# client documents, an Oracle wallet (private keys), spreadsheets, ad-hoc
-# screenshots, etc. -- none of which belong in git. Rather than trying to
-# blacklist each sensitive thing individually (easy to miss one), this
-# ignores EVERYTHING by default and only whitelists the paths that are
-# actually meant to be this repo: the GitHub Actions workflows, the
-# INSIGHT_oracle_26node_apex_python_container project folder,
+# The working directory this repo lives in also holds material that must
+# never be committed: client documents, an Oracle wallet (private keys),
+# spreadsheets and ad-hoc screenshots. Rather than blacklisting each
+# sensitive item individually -- where missing one is silent and
+# permanent -- this ignores EVERYTHING by default and whitelists only the
+# paths that genuinely belong to the repo: the GitHub Actions workflows,
+# the INSIGHT_oracle_26node_apex_python_container project folder,
 # INSIGHT_app.html (tracked so CI can diff it against web/index.html and
 # catch the two copies drifting -- see ci.yml), and INSIGHT_addons/ (the
 # COA setup tools + discovery/product-mapping workbook -- real project
-# artifacts, not scratch files). Anything new dropped into this OneDrive
-# folder is untracked unless explicitly whitelisted below.
+# artifacts, not scratch files). Anything new added to the working
+# directory is untracked unless explicitly whitelisted below.
 #
 # Deliberately NOT tracked, though both live in this folder:
 #   - INSIGHT_All_Clients_Roster.xlsx -- the manual client-tracking roster.
@@ -21,6 +21,8 @@
 #   - Screenshots. Ad-hoc, dated, and never a build input.
 /*
 !/.gitignore
+!/README.md
+!/LICENSE
 !/.github/
 !/INSIGHT_oracle_26node_apex_python_container/
 !/INSIGHT_app.html

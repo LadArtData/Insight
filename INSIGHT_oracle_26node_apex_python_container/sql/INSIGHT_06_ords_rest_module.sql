@@ -1,18 +1,16 @@
 SET DEFINE OFF
 -- ============================================================================
 -- ORDS REST MODULE: insight-hooks
--- Native Oracle REST Data Services module, following the same pattern as the
--- frp-hooks / scout-hooks / validate-hooks modules already defined in this
--- ADMIN schema (see ADMIN.sql): ORDS.DEFINE_MODULE/TEMPLATE/HANDLER with
--- plsql/block handlers, the same api_key check against
--- iteria_ai.api_configuration, and the same {"ok":...} JSON envelope.
+-- Native Oracle REST Data Services module:
+-- ORDS.DEFINE_MODULE/TEMPLATE/HANDLER with plsql/block handlers, an
+-- api_key check against iteria_ai.api_configuration, and a {"ok":...}
+-- JSON envelope on every response.
 --
 -- This is the live REST interface for the 26-node matrix -- it calls
--- iteria_ai.pkg_insight_board_engine directly, no separate application
--- server required. This module itself is registered under ADMIN (there is
--- a single Oracle login), same as frp-hooks/scout-hooks/validate-hooks,
--- while the tables and package it calls live in ITERIA_AI (INSIGHT_01
--- through INSIGHT_05), alongside FRP_DOCS, FRP_CHUNKS, etc.
+-- iteria_ai.pkg_insight_board_engine directly, so no separate application
+-- server is required. The module is registered under ADMIN (the only
+-- login on the target database), while the tables and package it calls
+-- live in ITERIA_AI (V1 through V5).
 --
 -- Base path once deployed: /ords/admin/insight-hooks/
 -- Run after INSIGHT_01 through INSIGHT_05.

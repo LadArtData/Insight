@@ -2,10 +2,9 @@ ALTER SESSION SET CURRENT_SCHEMA = ITERIA_AI;
 -- ============================================================================
 -- ORACLE DATABASE SCHEMA A: DATA LAYER
 -- Target Environment: Oracle Database 19c / 21c / 23c / Autonomous DB
--- Deploys into ITERIA_AI (ALTER SESSION SET CURRENT_SCHEMA above), the
--- same schema that already holds FRP_DOCS, FRP_CHUNKS, etc. Run while
--- connected as ADMIN -- there is a single Oracle login in this
--- environment, and ADMIN has rights to create objects in ITERIA_AI.
+-- Deploys into ITERIA_AI (ALTER SESSION SET CURRENT_SCHEMA above). Run
+-- while connected as ADMIN: the target database has a single login, and
+-- ADMIN has rights to create objects in ITERIA_AI.
 -- Description: Physical state storage for 26-node AI Matrix and Activity Audits.
 -- ============================================================================
 

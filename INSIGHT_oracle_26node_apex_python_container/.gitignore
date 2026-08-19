@@ -27,10 +27,9 @@ node_modules/
 # Docker volume data if ever bind-mounted locally
 docker/oradata/
 
-# Full ADMIN/ORDS export of the shared ADB workspace -- covers other
-# products (frp-hooks, scout-hooks, validate-hooks, etc.), not just INSIGHT.
-# Kept locally as a reference, not meant for this repo. Remove this line if
-# you deliberately want it version-controlled.
+# Full ADMIN/ORDS export of the target database. Such an export describes
+# the whole shared workspace, not just INSIGHT, so it is kept as a local
+# reference rather than committed here.
 sql/ADMIN_reference_export.sql
 
 # OS / editor cruft

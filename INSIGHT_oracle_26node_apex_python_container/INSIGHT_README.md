@@ -1,20 +1,18 @@
 # INSIGHT — 26-Node EDL Matrix
 
-## Real environment: one login (ADMIN), data lives in ITERIA_AI
-This targets an Oracle Autonomous Database workspace where **ADMIN is the
-only login** and ORDS/APEX are already provisioned. Following the existing
-convention in that workspace (FRP Studio's `FRP_DOCS`, `FRP_CHUNKS`, etc.
-live in `ITERIA_AI`, while the ORDS REST modules that expose them --
-`frp-hooks`, `scout-hooks`, `validate-hooks` -- are registered under
-`ADMIN`), INSIGHT follows the same split:
+## Deployment model: one login (ADMIN), data lives in ITERIA_AI
+This targets an Oracle Autonomous Database where **ADMIN is the only
+login** and ORDS/APEX are already provisioned. Application objects are
+kept out of `ADMIN` and owned by a dedicated schema, while the ORDS REST
+module that exposes them is registered under `ADMIN` — the split is:
 
 - **Tables + package deploy into `ITERIA_AI`** (`V1`-`V5`). Each script
   leads with `ALTER SESSION SET CURRENT_SCHEMA = ITERIA_AI;`, so connect
   as ADMIN and apply them via Flyway (see "Applying migrations" below) --
   running them by hand in SQL Developer Web / Database Actions still works
   too, in order, if you ever need to.
-- **The ORDS REST module registers under `ADMIN`** (`INSIGHT_06`), same as
-  the other three modules, and reaches into `ITERIA_AI` for every call.
+- **The ORDS REST module registers under `ADMIN`** (`INSIGHT_06`) and
+  reaches into `ITERIA_AI` for every call.
   It's a one-off ORDS metadata registration against a real ORDS-enabled
   environment, not a schema migration -- it's intentionally **not**
   Flyway-tracked (doesn't match the `V<n>__...` naming Flyway scans for)
@@ -46,17 +44,17 @@ run `flyway baseline -baselineVersion=5` once first -- this tells Flyway
 database. (Baseline at 5, not 6, since V6 was never Flyway-tracked.) After
 that, a normal `flyway migrate` applies anything newer.
 
-`sql/INSIGHT_06_ords_rest_module.sql`, `sql/ADMIN_reference_export.sql`,
-and `sql/INSIGHT_ADMIN_cleanup_old_objects.sql` are deliberately excluded
-from every migrate run above (filename doesn't match `V<n>__...`) -- run
+`sql/INSIGHT_06_ords_rest_module.sql` and
+`sql/INSIGHT_ADMIN_cleanup_old_objects.sql` are deliberately excluded from
+every migrate run above (their filenames don't match `V<n>__...`) -- run
 them by hand, connected as ADMIN, when their specific circumstance applies.
 
 (`V3`/`V4` carry the package rename forward -- if you have the old
 `INSIGHT_03_pkg_ai_board_engine_spec.sql` / `INSIGHT_04_pkg_ai_board_engine_body.sql`
 saved anywhere, delete them and use these instead.)
 
-Object names, all prefixed `INSIGHT_` (dropped the old bare `AI_` prefix so
-they read consistently with `FRP_*`):
+Object names are all prefixed `INSIGHT_` (replacing an earlier bare `AI_`
+prefix, which was too generic to be safe in a shared schema):
 
 | Old name | New name |
 |---|---|
@@ -71,11 +69,11 @@ Already ran `INSIGHT_01`/`02` once under ADMIN before this rename? Run
 those orphaned `AI_*` copies -- it's safe to run even if some objects were
 never created.
 
-`INSIGHT_06` follows the exact `ORDS.DEFINE_MODULE` / `DEFINE_TEMPLATE` /
-`DEFINE_HANDLER` pattern already used by `frp-hooks` (see `ADMIN.sql`):
-`plsql/block` handlers, the same `iteria_ai.api_configuration` api_key
-check, `:body_text` + `JSON_VALUE` for POST bodies, `APEX_JSON.STRINGIFY`
-for output, `:status` for HTTP codes. Once run, it publishes:
+`INSIGHT_06` uses the standard `ORDS.DEFINE_MODULE` / `DEFINE_TEMPLATE` /
+`DEFINE_HANDLER` pattern: `plsql/block` handlers, an api_key check against
+`iteria_ai.api_configuration`, `:body_text` + `JSON_VALUE` for POST
+bodies, `APEX_JSON.STRINGIFY` for output, and `:status` for HTTP codes.
+Once run, it publishes:
 
 ```
 GET  /ords/admin/insight-hooks/health
@@ -195,9 +193,9 @@ auto-applied on first boot (that was the old `docker/initdb/` wrapper,
 removed in favor of Flyway being the one tracked way scripts get applied,
 for this container and the real ADB alike) -- run the `flyway` command
 above whenever you want the schema present, including after a fresh
-`docker compose down -v`. `sql/INSIGHT_06`, `ADMIN_reference_export.sql`,
-and `INSIGHT_ADMIN_cleanup_old_objects.sql` are intentionally not part of
-that run -- they're either ORDS-specific or one-off ADMIN helpers.
+`docker compose down -v`. `sql/INSIGHT_06` and
+`INSIGHT_ADMIN_cleanup_old_objects.sql` are intentionally not part of that
+run -- they're either ORDS-specific or one-off ADMIN helpers.
 
 ## Optional: bulk document ingestion
 `python/INSIGHT_oracle_doc_ingestion.py` is a standalone script that walks a
@@ -231,14 +229,36 @@ that instance's Security List/NSG (separate from 1521's rule) or the page
 won't load from outside. `web/index.html` is a plain copy, not a symlink --
 if you edit the app UI, copy the updated file into `web/index.html` too.
 
-## CI: publishing the ingestion image
-`.github/workflows/build.yml` builds `python/Dockerfile` and pushes it to
-OCIR on every push to `main`, matching the same pattern used in Validatev5:
-`bom.ocir.io/bmi3vxyqnzrv/insight:amd64-insight`. It logs in with the repo
-secrets `OCIR_USERNAME` / `OCIR_PASSWORD` -- these need to exist on this
-repo (or be shared at the org level) or the login step will fail.
-`.github/workflows/ci.yml` is separate and just validates the compose file
-+ Python syntax on every push/PR.
+## CI: publishing images
+`.github/workflows/build.yml` builds and pushes to OCIR. It has three
+targets, selectable on a manual run (Actions → Run workflow):
+
+| Target | Builds | Pushes |
+|---|---|---|
+| `combined` (default) | root `Dockerfile` | `insight-app:latest` |
+| `web` | `web/Dockerfile` | `insight-web:latest` |
+| `python` | `python/Dockerfile` | `insight:amd64-insight` |
+
+A push to `main` builds `combined`, because that is the image deployed to
+the Container Instance. The path filter covers everything baked into it:
+`web/`, `python/`, and the root `Dockerfile`. Editing only SQL or APEX
+files does not trigger an image build — those deploy to the database, not
+the container.
+
+Login uses the repo secrets `OCIR_USERNAME` / `OCIR_PASSWORD`; the
+registry host and tenancy namespace are set in the workflow itself. Both
+secrets must exist on the repo (or be inherited from the organization) or
+the login step fails.
+
+> A new image does **not** update a running OCI Container Instance. OCI
+> does not re-pull a moving `:latest` tag, and instances are immutable
+> after creation — deploying a new build means recreating the instance,
+> which assigns a new public IP.
+
+`.github/workflows/ci.yml` is separate: it runs the front-end regression
+suite, verifies the two copies of the app HTML are in sync, checks the
+generated question set matches `questions/insight_questions.json`,
+compile-checks the Python, and validates the compose file.
 
 ## Directory structure
 - `sql/`: `V1`-`V4` schema + package, `V5` seed data -- all Flyway-tracked,
@@ -247,10 +267,9 @@ repo (or be shared at the org level) or the login step will fail.
   question seed data, locked-answer trigger) -- see "Discovery
   questionnaire backend" above, also Flyway-tracked. `flyway.conf` holds
   the shared Flyway settings (see "Applying migrations" above).
-  `INSIGHT_06_ords_rest_module.sql` (ADMIN, ORDS metadata),
-  `ADMIN_reference_export.sql`, and `INSIGHT_ADMIN_cleanup_old_objects.sql`
-  are intentionally **not** Flyway-tracked -- one-off/environment-specific,
-  run by hand.
+  `INSIGHT_06_ords_rest_module.sql` (ADMIN, ORDS metadata) and
+  `INSIGHT_ADMIN_cleanup_old_objects.sql` are intentionally **not**
+  Flyway-tracked -- one-off/environment-specific, run by hand.
 - `apex/`: static HTML + JS for the APEX page / standalone browser use.
 - `python/`: standalone document-ingestion script (`INSIGHT_oracle_doc_ingestion.py`)
   + `INSIGHT_requirements.txt` -- run directly with python3 against either
