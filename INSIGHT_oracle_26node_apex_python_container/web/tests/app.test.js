@@ -214,19 +214,42 @@ test("summary module badges reflect each qualifier's answer", async () => {
   assert.equal(byId(win2, "mod-status-cm").textContent, "Not in scope");
 });
 
-test("persistence: saved record shape has answers/skipped/companyName and round-trips through resume", async () => {
+test("persistence: saved record shape has answers/skipped/companyName", async () => {
   const dom = await bootApp();
   const win = dom.window;
   byId(win, "btn-new-client").click();
   fillText(win, "Acme Corp, Acme");
   await clickNext(win);
-  const keys = Object.keys(win.localStorage).filter((k) => k.startsWith("insight:client:"));
-  assert.equal(keys.length, 1);
-  const record = JSON.parse(win.localStorage.getItem(keys[0]));
+  // Goes through window.storage (the public contract), not a specific
+  // backing store -- storage is in-memory-per-session now (see the
+  // "no client data survives a reload" test below), not localStorage.
+  const indexRes = await win.storage.get("clients-index");
+  const index = JSON.parse(indexRes.value);
+  assert.equal(index.length, 1);
+  const recordRes = await win.storage.get("client:" + index[0].id);
+  const record = JSON.parse(recordRes.value);
   assert.ok(record.answers && typeof record.answers === "object");
   assert.ok(record.skipped && typeof record.skipped === "object");
   assert.equal(record.companyName, "Acme Corp");
   assert.equal(record.answers["INTAKE-001"], "Acme Corp, Acme");
+});
+
+test("no client data survives a reload (in-memory storage only, not localStorage)", async () => {
+  const dom1 = await bootApp();
+  const win1 = dom1.window;
+  byId(win1, "btn-new-client").click();
+  fillText(win1, "Acme Corp, Acme");
+  await clickNext(win1);
+  const index1 = JSON.parse((await win1.storage.get("clients-index")).value);
+  assert.equal(index1.length, 1, "sanity: the client was actually saved in this session");
+
+  // A fresh JSDOM instance is the closest equivalent to a real reload --
+  // a brand new window, so the in-memory store from dom1 cannot leak in.
+  const dom2 = await bootApp();
+  const win2 = dom2.window;
+  byId(win2, "nav-clients").click();
+  await wait(10);
+  assert.match(byId(win2, "records-list-area").textContent, /No clients yet/);
 });
 
 test("resume: reopening a saved client restores position at the first unanswered question", async () => {
@@ -304,4 +327,58 @@ test("D2 regression: Export Configuration downloads a record snapshot instead of
   assert.equal(alertCalled, false, "export must not fall back to the old mockup alert");
   assert.ok(clickedAnchor, "export should trigger a download anchor click");
   assert.match(clickedAnchor.download, /-export\.json$/);
+});
+
+test("quality check: keyboard-mashed text warns and blocks the first Next click", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  fillText(win, "ewdrefvebrn"); // one unbroken 11-char token -- exactly the reported case
+  byId(win, "q-next").click();
+  await wait(10);
+  assert.match(byId(win, "q-quality-warning").textContent, /looks short or unclear/i);
+  assert.equal(progressLabel(win), "1 / 42", "must not have advanced on the first click");
+});
+
+test("quality check: a bracket-containing answer also warns", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  fillText(win, "[piuo8ytru");
+  byId(win, "q-next").click();
+  await wait(10);
+  assert.match(byId(win, "q-quality-warning").textContent, /looks short or unclear/i);
+  assert.equal(progressLabel(win), "1 / 42");
+});
+
+test("quality check: clicking Next a second time proceeds anyway (human judgment wins)", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  fillText(win, "ewdrefvebrn");
+  await clickNext(win); // first click: warns, blocks
+  await clickNext(win); // second click: same text, already acknowledged -- proceeds
+  assert.equal(progressLabel(win), "2 / 42");
+});
+
+test("quality check: editing the text after a warning re-checks it fresh", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  fillText(win, "ewdrefvebrn");
+  byId(win, "q-next").click();
+  await wait(10);
+  assert.equal(byId(win, "q-quality-warning").classList.contains("show"), true);
+  fillText(win, "Meridian County Government"); // real multi-word answer
+  assert.equal(byId(win, "q-quality-warning").classList.contains("show"), false, "warning should clear as soon as the text changes");
+  await clickNext(win); // single click -- a normal answer never needed a second confirm
+  assert.equal(progressLabel(win), "2 / 42");
+});
+
+test("quality check: normal multi-word answers never trigger the warning", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await fillIntake(win); // fillIntake's "answer 0".."answer 9" are all multi-word/short -- none should ever warn
+  assert.equal(byId(win, "q-quality-warning").classList.contains("show"), false);
 });

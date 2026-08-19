@@ -103,11 +103,15 @@ Reference the JS from Shared Components > Static Application Files
   active key.
 
 ## Discovery questionnaire backend (V7-V13)
-`INSIGHT_app.html` (the client discovery questionnaire) originally only had
-a `localStorage` fallback -- no real backend. `sql/V7`-`V13` add one, as a
-separate feature from the 26-node EDL matrix above; both deploy into the
-same `ITERIA_AI` schema but don't interact with each other. Applied the
-same way as V1-V5 -- see "Applying migrations" above:
+`INSIGHT_app.html` (the client discovery questionnaire) has no real backend
+wired up yet -- its `window.storage` fallback is in-memory only (per
+browser tab, cleared on reload), not `localStorage`, deliberately: this is
+real client discovery data with no auth/encryption/access control in front
+of it yet, so nothing persists to disk until a secured backend exists.
+`sql/V7`-`V13` build that backend's schema, as a separate feature from the
+26-node EDL matrix above; both deploy into the same `ITERIA_AI` schema but
+don't interact with each other. Applied the same way as V1-V5 -- see
+"Applying migrations" above:
 
 ```
 sql/V7__questionnaire_schema.sql               -- insight_questions, insight_clients, insight_client_answers
@@ -219,9 +223,9 @@ file ingestion.
 ## Local web UI (port 8000)
 `docker compose up -d` also starts `insight-web`, a plain nginx container
 serving `web/index.html` (a copy of the INSIGHT app UI) at
-`http://localhost:8000`. It's the same clickable, localStorage-backed
-front end you'd get opening the HTML file directly -- no backend, no live
-data, just reachable over HTTP instead of `file://`. If you deploy this
+`http://localhost:8000`. It's the same clickable, in-memory-only front end
+you'd get opening the HTML file directly -- no backend, no data persisted
+anywhere, just reachable over HTTP instead of `file://`. If you deploy this
 compose file to a cloud instance, port 8000 needs its own inbound rule in
 that instance's Security List/NSG (separate from 1521's rule) or the page
 won't load from outside. `web/index.html` is a plain copy, not a symlink --

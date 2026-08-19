@@ -177,6 +177,11 @@
   }
   .field-error.show { display: flex; }
   .field-invalid { border-color: #ff8a80 !important; }
+  .field-quality-warning {
+    display: none; align-items: center; gap: 6px; margin-top: 8px;
+    font-size: 0.78rem; color: var(--orange-soft); font-weight: 600;
+  }
+  .field-quality-warning.show { display: flex; }
   .char-count { font-size: 0.68rem; color: var(--ink-muted); text-align: right; margin-top: 4px; }
   .char-count.over { color: #ff8a80; }
 
@@ -301,7 +306,7 @@
       <div id="records-list-area">
         <div class="records-loading">Loading client records…</div>
       </div>
-      <p class="records-note">Client records are stored so any consultant on the team can pull them up later — not just the person who started the intake.</p>
+      <p class="records-note">Nothing here is saved yet — client records exist only for this browser session and are lost on reload. Persistent, secured storage is coming once this connects to the real backend.</p>
     </div>
   </div>
 
@@ -316,6 +321,7 @@
       <p class="q-text" id="q-text">Loading question…</p>
       <div id="q-answer-area"></div>
       <div class="field-error" id="q-field-error"></div>
+      <div class="field-quality-warning" id="q-quality-warning"></div>
       <div class="q-actions">
         <button class="btn btn-ghost" id="q-back">Back</button>
         <div class="q-actions-right">
@@ -413,30 +419,34 @@
   // This file expects a host-provided window.storage.{get,set,delete}(key, shared)
   // API (async, matching the calls below). When opened directly in a plain
   // browser (double-clicked, no host platform), that API doesn't exist --
-  // so we polyfill it with localStorage. Records persist in this browser
-  // only (not shared across machines/consultants like the real deployment
-  // would be); that's a limitation of this fallback, not the app design.
+  // so we polyfill it with an in-memory store.
+  //
+  // Deliberately NOT backed by localStorage: this app has no real backend
+  // yet (no auth, no encryption, no access control), and client discovery
+  // answers are real business/client data. Persisting that to disk in a
+  // browser profile -- even "just locally" -- is exactly the exposure this
+  // fallback should not create. Client records exist only for the current
+  // page session (gone on reload or tab close) until a secured backend
+  // exists to actually store them. See INSIGHT_README.md.
   if (!window.storage) {
+    var memoryStore = Object.create(null);
     window.storage = {
       get: function (key) {
         return new Promise(function (resolve, reject) {
-          try {
-            var v = window.localStorage.getItem("insight:" + key);
-            if (v === null) { reject(new Error("Key not found: " + key)); return; }
-            resolve({ value: v });
-          } catch (err) { reject(err); }
+          if (!(key in memoryStore)) { reject(new Error("Key not found: " + key)); return; }
+          resolve({ value: memoryStore[key] });
         });
       },
       set: function (key, value) {
-        return new Promise(function (resolve, reject) {
-          try { window.localStorage.setItem("insight:" + key, value); resolve(); }
-          catch (err) { reject(err); }
+        return new Promise(function (resolve) {
+          memoryStore[key] = value;
+          resolve();
         });
       },
       delete: function (key) {
-        return new Promise(function (resolve, reject) {
-          try { window.localStorage.removeItem("insight:" + key); resolve(); }
-          catch (err) { reject(err); }
+        return new Promise(function (resolve) {
+          delete memoryStore[key];
+          resolve();
         });
       }
     };
@@ -487,6 +497,35 @@
       errEl.classList.remove("show");
       if (el) el.classList.remove("field-invalid");
     }
+  }
+
+  function setQualityWarning(message) {
+    var el = document.getElementById("q-quality-warning");
+    if (!el) return;
+    if (message) { el.textContent = message; el.classList.add("show"); }
+    else { el.textContent = ""; el.classList.remove("show"); }
+  }
+
+  // Soft, non-authoritative check for free-text answers that are very
+  // unlikely to be an actionable discovery answer -- keyboard-mashing
+  // typed while testing, stray characters, etc. This is NOT a language
+  // model and can't reliably tell "real but terse" from "gibberish" in
+  // every case (deliberately not attempted -- see the two-click-confirm
+  // pattern below, which trusts the human's judgment over this heuristic
+  // rather than blocking on it). Every one of these discovery questions
+  // expects a substantive, explanatory answer, not a single bare word --
+  // so "one unbroken token, no spaces, of meaningful length" is flagged
+  // even when that token happens to be a real word, since it's still
+  // unlikely to be a *complete* answer to something like "what ERP does
+  // the client use, and are they still under contract?"
+  function looksLikeLowQualityAnswer(text) {
+    var t = (text || "").trim();
+    if (t.length < 4) return false; // too short to judge -- also usually optional/N-A-type answers
+    if (/[\[\]{}<>\\|`~^]/.test(t)) return true; // stray characters unlikely in prose
+    if (/(.)\1{3,}/.test(t)) return true; // same character 4+ times in a row (key-mashing)
+    var words = t.split(/\s+/).filter(Boolean);
+    if (words.length === 1 && t.length >= 8) return true; // one long unbroken token, not a sentence
+    return false;
   }
 
   function showScreen(name) {
@@ -647,8 +686,11 @@
   var CLIENTS_INDEX_KEY = "clients-index";
 
   // ---------------- Storage helpers ----------------
-  // Shared storage so any consultant using this app can see the same client
-  // roster, not just whoever originally created the record.
+  // Storage is in-memory for this session only (see the window.storage
+  // fallback above) -- NOT shared across consultants or machines yet.
+  // That's intentional until a secured backend exists; these helpers keep
+  // the same {get,set,delete} shape either way so wiring a real backend
+  // later doesn't change anything above this line.
   async function getClientIndex() {
     try {
       var res = await window.storage.get(CLIENTS_INDEX_KEY, true);
@@ -901,6 +943,7 @@
     document.getElementById("q-next").textContent = qIndex === active.length - 1 ? "Finish" : "Next";
     refreshSkipUI(q);
     setFieldError(null, null);
+    setQualityWarning(null);
 
     var area = document.getElementById("q-answer-area");
     area.innerHTML = "";
@@ -943,6 +986,8 @@
           refreshSkipUI(q);
         }
         setFieldError(null, null);
+        q.qualityAcknowledged = false; // text changed -- re-check it fresh next time Next is clicked
+        setQualityWarning(null);
         updateCounter();
       });
       area.appendChild(ta);
@@ -982,6 +1027,15 @@
       setFieldError(invalidEl, msg);
       return;
     }
+    // Soft quality check, text answers only -- warns once, doesn't block.
+    // Clicking Next again (or editing the text, which resets the flag)
+    // proceeds; the human's judgment wins over the heuristic.
+    if (q.type === "text" && !q.qualityAcknowledged && looksLikeLowQualityAnswer(q.answer)) {
+      q.qualityAcknowledged = true;
+      setQualityWarning("This answer looks short or unclear for what's being asked — double check it, or click Next again to continue anyway.");
+      return;
+    }
+    setQualityWarning(null);
     q.skipped = false; // reached Next validly -- required-and-blank can't get here, so this is a real answer or an optional blank left alone
     await advanceQuestionnaire();
   }));
