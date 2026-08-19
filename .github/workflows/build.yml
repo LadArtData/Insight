@@ -3,9 +3,19 @@ name: Build and push Insight to OCIR
 # Single parameterized workflow replacing the old build.yml /
 # build-manual.yml / build-web.yml / build-combined.yml, which were three
 # near-duplicates plus one variant, differing only in which
-# context/Dockerfile/tags to build. Manual runs pick the target explicitly;
-# the push-triggered case (edits under python/) keeps its original
-# behavior unchanged, defaulting to "python".
+# context/Dockerfile/tags to build. Manual runs pick the target explicitly.
+#
+# Push-triggered runs build "combined" (bom.ocir.io/.../insight-app:latest)
+# because that is the image actually deployed to the OCI Container
+# Instance. Previously this trigger watched only python/** and defaulted to
+# the "python" target, so editing the questionnaire front end rebuilt
+# nothing -- and a python/** edit rebuilt an image that isn't deployed.
+# The result was a deployed container silently stale against main.
+#
+# The path filter therefore covers everything baked into the combined
+# image: web/ (index.html + nginx.conf), python/ (the ingestion script and
+# its requirements, installed into the image), and the combined Dockerfile
+# itself. Manual dispatch still reaches the python and web targets.
 
 on:
   workflow_dispatch:
@@ -17,11 +27,13 @@ on:
           - python
           - web
           - combined
-        default: python
+        default: combined
   push:
     branches: [main]
     paths:
+      - "INSIGHT_oracle_26node_apex_python_container/web/**"
       - "INSIGHT_oracle_26node_apex_python_container/python/**"
+      - "INSIGHT_oracle_26node_apex_python_container/Dockerfile"
       - ".github/workflows/build.yml"
 
 jobs:
@@ -53,7 +65,7 @@ jobs:
       - name: Set build parameters for the selected target
         id: params
         env:
-          TARGET: ${{ github.event.inputs.target || 'python' }}
+          TARGET: ${{ github.event.inputs.target || 'combined' }}
         run: |
           case "$TARGET" in
             python)
@@ -93,7 +105,7 @@ jobs:
 
       - name: Summary
         env:
-          TARGET: ${{ github.event.inputs.target || 'python' }}
+          TARGET: ${{ github.event.inputs.target || 'combined' }}
           TAGS: ${{ steps.params.outputs.tags }}
         run: |
           echo "Target: $TARGET"
