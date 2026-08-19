@@ -100,6 +100,52 @@ Reference the JS from Shared Components > Static Application Files
   the same origin as ORDS, or if `iteria_ai.api_configuration` has an
   active key.
 
+## REST layer for the questionnaire
+`sql/INSIGHT_07_ords_questionnaire_module.sql` publishes the questionnaire
+tables. `INSIGHT_06` covers only the 26-node matrix, so without this module
+nothing exposes `insight_clients` or `insight_client_answers` and the front
+end has no backend to talk to.
+
+Run it as ADMIN after `V7`–`V13` are applied. Like `INSIGHT_06` it is ORDS
+metadata rather than a schema migration, so it is not Flyway-tracked.
+
+```
+GET    /ords/admin/insight-questionnaire/clients
+GET    /ords/admin/insight-questionnaire/clients/:client_id
+PUT    /ords/admin/insight-questionnaire/clients/:client_id
+DELETE /ords/admin/insight-questionnaire/clients/:client_id
+```
+
+`GET clients/:client_id` reassembles the normalized rows into the exact
+record shape the front end already uses — `{id, companyName, answers,
+skipped, createdAt, updatedAt}` — so wiring the app to it needs no change
+to its save/load call sites.
+
+`PUT` upserts the client and its answers. The front end saves the entire
+answer set on every save, while `pkg_insight_answers.record_answer` routes
+any change to an already-answered question through the approval workflow.
+Replaying every answer would therefore raise a PENDING change request per
+question on every save, so the handler compares each answer against what
+is stored and calls `record_answer` only where the value actually changed.
+The response reports what happened:
+
+```json
+{"ok":true,"saved":3,"pendingApproval":1,"unknownQuestions":0}
+```
+
+`DELETE` archives (`status = 'ARCHIVED'`) rather than deleting, so answer
+history survives. `GET clients` lists only ACTIVE rows.
+
+Verify after installing:
+
+```bash
+curl -s "$ORDS/insight-questionnaire/clients"
+curl -s -X PUT "$ORDS/insight-questionnaire/clients/test-001" \
+  -H 'Content-Type: application/json' \
+  -d '{"companyName":"Test Co","answers":{"INTAKE-001":"Test Co"},"skipped":{}}'
+curl -s "$ORDS/insight-questionnaire/clients/test-001"
+```
+
 ## Running the matrix without APEX
 APEX is not required. The combined container image serves the same two
 files and proxies the REST calls, so the matrix runs entirely from the
