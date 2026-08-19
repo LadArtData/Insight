@@ -139,4 +139,4 @@ LEFT JOIN (
      GROUP BY client_id
 ) docs ON docs.client_id = c.client_id;
 
-COMMENT ON TABLE insight_client_summary IS 'One row per client -- progress %, pending-approval count, document count. Management rollup view (see Implementation & Architecture Notes, Section 3) so status across clients/consultants is visible without the full per-question detail.';
+COMMENT ON TABLE insight_client_summary IS 'One row per client -- progress %, pending-approval count, document count. Management rollup view: status across clients and consultants without the full per-question detail.';

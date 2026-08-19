@@ -55,8 +55,28 @@ WHEN NOT MATCHED THEN INSERT (
 COMMIT;
 `;
 
+// Emits an Oracle string literal, with one wrinkle: an ampersand must never
+// appear inside it.
+//
+// SQL*Plus, SQL Developer and Database Actions all treat "&" as the start of
+// a substitution variable, so "Needs & Wants" makes the client stop and
+// prompt for a value instead of running the script. The usual fix is a
+// leading "SET DEFINE OFF", but that is a SQL*Plus directive, and Flyway
+// rejects it unless flyway.oracle.sqlplus is enabled -- so these files have
+// to be runnable without it.
+//
+// Splicing in CHR(38) sidesteps the whole problem: there is no literal "&"
+// left in the file for any client to interpret, and it is plain SQL that
+// Flyway, SQL*Plus and Database Actions all execute identically.
 function sqlStringLiteral(s) {
-  return "'" + s.replace(/'/g, "''") + "'";
+  const escaped = s.replace(/'/g, "''");
+  if (!escaped.includes("&")) return "'" + escaped + "'";
+  return escaped
+    .split("&")
+    .map((part) => "'" + part + "'")
+    .join(" || CHR(38) || ")
+    .replace(/'' \|\| /g, "")        // drop empty literal if text starts with &
+    .replace(/ \|\| ''$/g, "");      // drop empty literal if text ends with &
 }
 
 function renderRow(q) {
