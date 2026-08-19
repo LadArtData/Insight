@@ -34,6 +34,8 @@ on:
       - "INSIGHT_oracle_26node_apex_python_container/web/**"
       - "INSIGHT_oracle_26node_apex_python_container/python/**"
       - "INSIGHT_oracle_26node_apex_python_container/Dockerfile"
+      - "INSIGHT_oracle_26node_apex_python_container/docker-entrypoint.py"
+      - "INSIGHT_oracle_26node_apex_python_container/apex/**"
       - ".github/workflows/build.yml"
 
 jobs:

@@ -490,3 +490,149 @@ test("storage: falls back to memory when the backend is unreachable", async () =
     "questionnaire should still start when the backend is down");
   win.close();
 });
+
+// A stateful fake of the insight-questionnaire ORDS module -- not just
+// canned responses, but an actual small in-memory store behind the same
+// four routes, including the same approval-workflow rule the real
+// pkg_insight_answers.record_answer enforces (V9): the first value written
+// for a question saves directly; changing an already-set value does not
+// overwrite it and counts toward pendingApproval instead. This is what
+// makes the round-trip test below a genuine round-trip through something
+// that behaves like the backend, not just an echo.
+function statefulFakeOrds() {
+  const clients = new Map(); // id -> { companyName, answers, skipped, createdAt, updatedAt }
+  function fetchImpl(url, opts) {
+    const method = (opts && opts.method) || "GET";
+    const path = String(url).replace("http://localhost", "").replace(API, "");
+    const now = new Date().toISOString();
+
+    if (method === "GET" && path === "/clients") {
+      const list = Array.from(clients.entries())
+        .map(([id, c]) => ({ id, companyName: c.companyName, updatedAt: c.updatedAt }));
+      return respond(200, list);
+    }
+    const idMatch = path.match(/^\/clients\/([^/]+)$/);
+    if (!idMatch) return respond(404, { ok: false, error: "no route" });
+    const id = decodeURIComponent(idMatch[1]);
+
+    if (method === "GET") {
+      const c = clients.get(id);
+      if (!c) return respond(404, { ok: false, error: "client not found" });
+      return respond(200, { id, companyName: c.companyName, answers: c.answers, skipped: c.skipped, createdAt: c.createdAt, updatedAt: c.updatedAt });
+    }
+    if (method === "PUT") {
+      const body = JSON.parse(opts.body);
+      const existing = clients.get(id) || { companyName: "Unnamed client", answers: {}, skipped: {}, createdAt: now };
+      let saved = 0, pendingApproval = 0;
+      const answers = Object.assign({}, existing.answers);
+      Object.keys(body.answers || {}).forEach((qid) => {
+        const newVal = body.answers[qid];
+        const hadValue = existing.answers[qid] !== undefined && existing.answers[qid] !== null && existing.answers[qid] !== "";
+        if (!hadValue) {
+          answers[qid] = newVal; saved++;
+        } else if (existing.answers[qid] === newVal) {
+          // unchanged -- neither saved nor pending
+        } else {
+          pendingApproval++; // matches record_answer: edit to an existing answer does not overwrite
+        }
+      });
+      clients.set(id, {
+        companyName: body.companyName || existing.companyName,
+        answers, skipped: body.skipped || existing.skipped,
+        createdAt: existing.createdAt, updatedAt: now,
+      });
+      return respond(200, { ok: true, saved, pendingApproval, unknownQuestions: 0 });
+    }
+    if (method === "DELETE") {
+      const existed = clients.delete(id);
+      return respond(existed ? 200 : 404, existed ? { ok: true, archived: id } : { ok: false, error: "client not found" });
+    }
+    return respond(404, { ok: false, error: "no route" });
+  }
+  function respond(status, payload) {
+    return Promise.resolve({
+      ok: status >= 200 && status < 300, status,
+      json: () => Promise.resolve(payload),
+      text: () => Promise.resolve(JSON.stringify(payload)),
+    });
+  }
+  return { fetchImpl, clients };
+}
+
+test("round trip: a client created in one session is retrievable from a fresh session via GET", async () => {
+  const server = statefulFakeOrds();
+  const dom1 = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win1 = dom1.window;
+  await wait(60);
+  byId(win1, "btn-new-client").click();
+  await wait(30);
+  fillText(win1, "Meridian County Government, Meridian");
+  await clickNext(win1);
+  await wait(60);
+  win1.close();
+
+  assert.equal(server.clients.size, 1, "sanity: the fake backend actually stored one client");
+
+  // A second, completely separate window/session -- nothing shared with
+  // dom1 except the fake server's Map, standing in for Oracle.
+  const dom2 = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win2 = dom2.window;
+  await wait(60);
+  byId(win2, "nav-clients").click();
+  await wait(30);
+  assert.match(byId(win2, "records-list-area").textContent, /Meridian County Government/,
+    "the second session's Records screen should list the client the first session created");
+
+  const openBtn = byId(win2, "records-list-area").querySelector("[data-open]");
+  openBtn.click();
+  await wait(30);
+  assert.ok(byId(win2, "screen-questionnaire").classList.contains("active"));
+  const ta = win2.document.querySelector(".q-input, textarea");
+  // resumed at the first unanswered question, not INTAKE-001 -- confirm via
+  // the underlying stored answer instead of what's on screen right now
+  const stored = server.clients.get(Array.from(server.clients.keys())[0]);
+  assert.equal(stored.answers["INTAKE-001"], "Meridian County Government, Meridian");
+  win2.close();
+});
+
+test("delete calls the DELETE endpoint and the client no longer lists", async () => {
+  const server = statefulFakeOrds();
+  server.clients.set("c-del", { companyName: "Test Co", answers: {}, skipped: {}, createdAt: "2026-08-19T10:00:00Z", updatedAt: "2026-08-19T10:00:00Z" });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  byId(win, "nav-clients").click();
+  await wait(30);
+  win.confirm = () => true; // jsdom's window.confirm is a no-op returning undefined by default
+  byId(win, "records-list-area").querySelector("[data-delete]").click();
+  await wait(30);
+
+  assert.equal(server.clients.size, 0, "the fake backend should have received the DELETE");
+  assert.match(byId(win, "records-list-area").textContent, /No clients yet/);
+  win.close();
+});
+
+test("editing an already-answered question surfaces the pending-approval count instead of silently doing nothing", async () => {
+  const server = statefulFakeOrds();
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  byId(win, "btn-new-client").click();
+  await wait(30);
+  fillText(win, "Original Answer");
+  await clickNext(win); // first answer -- saves directly, no approval needed
+  await wait(60);
+  assert.equal(byId(win, "pending-approval-banner").classList.contains("show"), false,
+    "a first-time answer must not trigger the pending-approval notice");
+
+  byId(win, "q-back").click();
+  await wait(30);
+  fillText(win, "Changed Answer"); // editing a value that was already saved
+  await clickNext(win);
+  await wait(60);
+
+  assert.equal(byId(win, "pending-approval-banner").classList.contains("show"), true,
+    "editing an already-answered question should surface the pending-approval notice, not save silently");
+  assert.match(byId(win, "pending-approval-banner-text").textContent, /1 edit is pending review/);
+  win.close();
+});

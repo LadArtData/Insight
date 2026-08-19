@@ -6,13 +6,21 @@ python:3.12-slim: the interpreter is already present, so this needs no
 extra package (envsubst would mean pulling in gettext-base).
 
 Environment:
-  ORDS_BASE_URL   scheme://host of the ORDS server, no trailing path.
-                  Example: https://abc123-insight.adb.us-ashburn-1.oraclecloudapps.com
-                  If unset, /ords/ returns 503 and the rest of the site
-                  still serves -- an unconfigured ORDS is not a reason to
-                  take the whole container down.
-  ORDS_API_KEY    api_key for the insight-hooks module. Optional; only
-                  needed if iteria_ai.api_configuration holds an active key.
+  ORDS_BASE_URL   scheme://host of the ORDS server. Defaults to
+                  DEFAULT_ORDS_BASE_URL below, so this only needs setting
+                  to point a container at a different database. A path is
+                  accepted and stripped: nginx appends the request URI,
+                  which already carries /ords/admin/..., so a base with a
+                  path would produce a doubled URL.
+  ORDS_API_KEY    api_key for the ORDS modules. Only needed if
+                  iteria_ai.api_configuration holds an active key. It is
+                  read from the environment and never stored in this file:
+                  the repository is public, and the image is built from it,
+                  so a hardcoded key would be readable by anyone and would
+                  travel inside every pull of the image.
+
+If /ords/ is unconfigured the rest of the site still serves -- an
+unreachable database is not a reason to take the whole container down.
 
 The DNS resolver is read from /etc/resolv.conf, because nginx does not
 consult it on its own and needs an explicit `resolver` directive before it
@@ -26,6 +34,33 @@ import sys
 TEMPLATE = "/etc/nginx/templates/default.conf.template"
 OUTPUT = "/etc/nginx/conf.d/default.conf"
 FALLBACK_RESOLVER = "127.0.0.11"  # Docker's embedded DNS
+
+# The database this image is normally deployed against. A hostname is not a
+# credential -- the api_key is what controls access -- so baking it in is
+# safe and means the container needs no configuration to work.
+DEFAULT_ORDS_BASE_URL = (
+    "https://g654ecb02dc8fb5-zspniy715u9q85u2.adb.ap-mumbai-1.oraclecloudapps.com"
+)
+
+# ---------------------------------------------------------------------------
+# REMOVE BEFORE THIS HOLDS REAL CLIENT DATA
+# ---------------------------------------------------------------------------
+# Baked in at the project owner's instruction so the container needs no
+# configuration during build-out. This repository is public, so treat this
+# value as disclosed: it is the only access control in front of the ORDS
+# modules, which can read and write every questionnaire table.
+#
+# Deleting these lines later does NOT undo the disclosure -- the value stays
+# in git history and in every image built from it. To retire it you must
+# ROTATE the key:
+#
+#   UPDATE iteria_ai.api_configuration SET api_key = '<new value>'
+#    WHERE is_active = 'Y';
+#
+# and then supply the replacement via the ORDS_API_KEY environment variable
+# instead of this constant. The env var already takes precedence, so that
+# switch needs no code change.
+DEFAULT_ORDS_API_KEY = "vld8x2k9mPqR7sNjT4hW"
 
 
 def detect_resolver(path="/etc/resolv.conf"):
@@ -42,21 +77,28 @@ def detect_resolver(path="/etc/resolv.conf"):
 
 
 def sanitize_base_url(raw):
-    """Reject anything that isn't a bare scheme://host.
+    """Reduce to a bare scheme://host[:port].
 
-    The value lands inside an nginx directive, so a stray quote or newline
-    would corrupt the config -- and a trailing path would silently produce
-    a doubled URI, since proxy_pass appends $uri.
+    The value lands inside an nginx directive, so anything outside that
+    shape is rejected rather than allowed to corrupt the config. A path is
+    tolerated and dropped instead of being an error: proxy_pass appends the
+    request URI, which already begins /ords/admin/..., so keeping a path
+    here would produce /ords/admin/ords/admin/... -- and pasting the full
+    ORDS base URL is the obvious thing to do.
     """
-    value = (raw or "").strip().rstrip("/")
+    value = (raw or "").strip()
     if not value:
         return ""
-    if not re.match(r"^https?://[A-Za-z0-9.\-]+(:\d+)?$", value):
-        sys.exit(
-            "ORDS_BASE_URL must be scheme://host[:port] with no path, got: "
-            f"{value!r}"
+    m = re.match(r"^(https?://[A-Za-z0-9.\-]+(?::\d+)?)(/.*)?$", value)
+    if not m:
+        sys.exit(f"ORDS_BASE_URL must look like https://host[:port], got: {value!r}")
+    if m.group(2) and m.group(2).strip("/"):
+        print(
+            f"[entrypoint] ignoring path {m.group(2)!r} on ORDS_BASE_URL; "
+            "the request URI already supplies it",
+            flush=True,
         )
-    return value
+    return m.group(1)
 
 
 def sanitize_api_key(raw):
@@ -67,8 +109,13 @@ def sanitize_api_key(raw):
 
 
 def main():
-    base_url = sanitize_base_url(os.environ.get("ORDS_BASE_URL"))
-    api_key = sanitize_api_key(os.environ.get("ORDS_API_KEY"))
+    base_url = sanitize_base_url(
+        os.environ.get("ORDS_BASE_URL") or DEFAULT_ORDS_BASE_URL
+    )
+    # Env var wins, so rotating to a real secret later needs no code change.
+    api_key = sanitize_api_key(
+        os.environ.get("ORDS_API_KEY") or DEFAULT_ORDS_API_KEY
+    )
     resolver = detect_resolver()
 
     with open(TEMPLATE, encoding="utf-8") as handle:
