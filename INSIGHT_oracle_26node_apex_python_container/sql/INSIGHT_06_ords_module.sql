@@ -72,9 +72,16 @@ BEGIN
   l_boards  NUMBER := 0;
   l_nodes   NUMBER := 0;
 BEGIN
-  BEGIN SELECT api_key INTO l_api_key FROM iteria_ai.api_configuration
-        WHERE is_active=''Y'' AND ROWNUM=1;
-  EXCEPTION WHEN NO_DATA_FOUND THEN l_api_key := NULL; END;
+  -- Dynamic SQL on purpose. A static reference to api_configuration makes
+  -- the whole handler fail to COMPILE if that table is absent, and a
+  -- compile error cannot be caught by the block''s own EXCEPTION clause --
+  -- ORDS just returns ORDS-25001 / HTTP 555 with no usable detail. Bound
+  -- at run time instead, a missing table is an ordinary exception, and
+  -- "no key table" degrades to "no key required" rather than a dead API.
+  BEGIN
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+      INTO l_api_key;
+  EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
     :status := 403; HTP.P(''{"ok":false,"error":"unauthorized"}''); RETURN;
   END IF;
@@ -114,9 +121,16 @@ END;');
   l_board_id NUMBER := :board_id;
   l_nodes    CLOB;
 BEGIN
-  BEGIN SELECT api_key INTO l_api_key FROM iteria_ai.api_configuration
-        WHERE is_active=''Y'' AND ROWNUM=1;
-  EXCEPTION WHEN NO_DATA_FOUND THEN l_api_key := NULL; END;
+  -- Dynamic SQL on purpose. A static reference to api_configuration makes
+  -- the whole handler fail to COMPILE if that table is absent, and a
+  -- compile error cannot be caught by the block''s own EXCEPTION clause --
+  -- ORDS just returns ORDS-25001 / HTTP 555 with no usable detail. Bound
+  -- at run time instead, a missing table is an ordinary exception, and
+  -- "no key table" degrades to "no key required" rather than a dead API.
+  BEGIN
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+      INTO l_api_key;
+  EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
     :status := 403; HTP.P(''{"ok":false,"error":"unauthorized"}''); RETURN;
   END IF;
@@ -160,9 +174,16 @@ END;');
   l_payload    CLOB;
   l_out        CLOB;
 BEGIN
-  BEGIN SELECT api_key INTO l_api_key FROM iteria_ai.api_configuration
-        WHERE is_active=''Y'' AND ROWNUM=1;
-  EXCEPTION WHEN NO_DATA_FOUND THEN l_api_key := NULL; END;
+  -- Dynamic SQL on purpose. A static reference to api_configuration makes
+  -- the whole handler fail to COMPILE if that table is absent, and a
+  -- compile error cannot be caught by the block''s own EXCEPTION clause --
+  -- ORDS just returns ORDS-25001 / HTTP 555 with no usable detail. Bound
+  -- at run time instead, a missing table is an ordinary exception, and
+  -- "no key table" degrades to "no key required" rather than a dead API.
+  BEGIN
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+      INTO l_api_key;
+  EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
     :status := 403; HTP.P(''{"ok":false,"error":"unauthorized"}''); RETURN;
   END IF;
@@ -222,9 +243,16 @@ END;');
   l_req_key VARCHAR2(200) := :api_key;
   l_out     CLOB;
 BEGIN
-  BEGIN SELECT api_key INTO l_api_key FROM iteria_ai.api_configuration
-        WHERE is_active=''Y'' AND ROWNUM=1;
-  EXCEPTION WHEN NO_DATA_FOUND THEN l_api_key := NULL; END;
+  -- Dynamic SQL on purpose. A static reference to api_configuration makes
+  -- the whole handler fail to COMPILE if that table is absent, and a
+  -- compile error cannot be caught by the block''s own EXCEPTION clause --
+  -- ORDS just returns ORDS-25001 / HTTP 555 with no usable detail. Bound
+  -- at run time instead, a missing table is an ordinary exception, and
+  -- "no key table" degrades to "no key required" rather than a dead API.
+  BEGIN
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+      INTO l_api_key;
+  EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
     :status := 403; HTP.P(''{"ok":false,"error":"unauthorized"}''); RETURN;
   END IF;
@@ -275,9 +303,16 @@ END;');
   l_answers   CLOB;
   l_skipped   CLOB;
 BEGIN
-  BEGIN SELECT api_key INTO l_api_key FROM iteria_ai.api_configuration
-        WHERE is_active=''Y'' AND ROWNUM=1;
-  EXCEPTION WHEN NO_DATA_FOUND THEN l_api_key := NULL; END;
+  -- Dynamic SQL on purpose. A static reference to api_configuration makes
+  -- the whole handler fail to COMPILE if that table is absent, and a
+  -- compile error cannot be caught by the block''s own EXCEPTION clause --
+  -- ORDS just returns ORDS-25001 / HTTP 555 with no usable detail. Bound
+  -- at run time instead, a missing table is an ordinary exception, and
+  -- "no key table" degrades to "no key required" rather than a dead API.
+  BEGIN
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+      INTO l_api_key;
+  EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
     :status := 403; HTP.P(''{"ok":false,"error":"unauthorized"}''); RETURN;
   END IF;
@@ -351,9 +386,16 @@ END;');
   l_pending     NUMBER := 0;
   l_unknown     NUMBER := 0;
 BEGIN
-  BEGIN SELECT api_key INTO l_api_key FROM iteria_ai.api_configuration
-        WHERE is_active=''Y'' AND ROWNUM=1;
-  EXCEPTION WHEN NO_DATA_FOUND THEN l_api_key := NULL; END;
+  -- Dynamic SQL on purpose. A static reference to api_configuration makes
+  -- the whole handler fail to COMPILE if that table is absent, and a
+  -- compile error cannot be caught by the block''s own EXCEPTION clause --
+  -- ORDS just returns ORDS-25001 / HTTP 555 with no usable detail. Bound
+  -- at run time instead, a missing table is an ordinary exception, and
+  -- "no key table" degrades to "no key required" rather than a dead API.
+  BEGIN
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+      INTO l_api_key;
+  EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
     :status := 403; HTP.P(''{"ok":false,"error":"unauthorized"}''); RETURN;
   END IF;
@@ -462,9 +504,16 @@ END;');
   l_req_key   VARCHAR2(200) := :api_key;
   l_client_id VARCHAR2(40)  := :client_id;
 BEGIN
-  BEGIN SELECT api_key INTO l_api_key FROM iteria_ai.api_configuration
-        WHERE is_active=''Y'' AND ROWNUM=1;
-  EXCEPTION WHEN NO_DATA_FOUND THEN l_api_key := NULL; END;
+  -- Dynamic SQL on purpose. A static reference to api_configuration makes
+  -- the whole handler fail to COMPILE if that table is absent, and a
+  -- compile error cannot be caught by the block''s own EXCEPTION clause --
+  -- ORDS just returns ORDS-25001 / HTTP 555 with no usable detail. Bound
+  -- at run time instead, a missing table is an ordinary exception, and
+  -- "no key table" degrades to "no key required" rather than a dead API.
+  BEGIN
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+      INTO l_api_key;
+  EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
     :status := 403; HTP.P(''{"ok":false,"error":"unauthorized"}''); RETURN;
   END IF;
