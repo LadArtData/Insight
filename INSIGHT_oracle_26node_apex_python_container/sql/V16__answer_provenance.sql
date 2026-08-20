@@ -55,8 +55,17 @@ ALTER TABLE insight_client_answers ADD CONSTRAINT chk_insight_ans_unknown
 -- An answer cannot be both "not known yet" and carry a value: one of them
 -- is wrong, and letting both through means a downstream reader has to
 -- decide which to believe.
-ALTER TABLE insight_client_answers ADD CONSTRAINT chk_insight_ans_unknown_blank
-    CHECK (is_unknown = 0 OR answer_value IS NULL);
+--
+-- That invariant is enforced in pkg_insight_answers.record_answer, which
+-- nulls the value whenever is_unknown is set, NOT by a CHECK constraint.
+-- Oracle does not support CHECK constraints on LOB columns -- NOT NULL is
+-- the only constraint a LOB accepts -- and answer_value is a CLOB, so
+--     CHECK (is_unknown = 0 OR answer_value IS NULL)
+-- fails at DDL time. (The IS JSON constraint on insight_nodes_26 is not a
+-- counter-example: IS JSON is a documented exception to that rule.)
+--
+-- record_answer is the only writer, so the invariant holds in practice; it
+-- is a procedural guarantee rather than a declarative one.
 
 -- Finding everything still provisional is the common downstream question,
 -- so index for it rather than scanning the client's whole answer set.

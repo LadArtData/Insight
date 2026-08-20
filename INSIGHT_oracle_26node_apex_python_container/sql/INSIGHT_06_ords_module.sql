@@ -22,7 +22,16 @@ SET DEFINE OFF
 -- Registered under ADMIN (the only login on the target database) and
 -- reaches into ITERIA_AI.
 --
--- Run AFTER V1-V13 have been applied. This is ORDS metadata, not a schema
+-- RUN ORDER MATTERS. Apply V1-V19 first, and V17/V18 in particular: the
+-- PUT handler below calls pkg_insight_answers.record_answer with p_source
+-- and p_is_unknown, which do not exist until V17 redefines the spec.
+-- Installing this module against an older package makes every PUT fail at
+-- request time with ORDS-25001 / HTTP 555 -- an opaque error, because the
+-- handler is an anonymous block whose compile failure has nowhere to
+-- surface. Both parameters are defaulted, so the reverse order is safe:
+-- an older module keeps working against the newer package.
+--
+-- This is ORDS metadata, not a schema
 -- migration, so it is deliberately not Flyway-tracked -- run it by hand,
 -- connected as ADMIN.
 -- ============================================================================
