@@ -308,16 +308,25 @@ BEGIN
     :status := 403; HTP.P(''{"ok":false,"error":"unauthorized"}''); RETURN;
   END IF;
 
+  -- Reads insight_client_summary (V11), not insight_clients, so each row
+  -- carries a real completion percentage. The roster used to be built in
+  -- the browser and kept its own percent; once the list moved server-side
+  -- that value had nowhere to come from and every progress bar rendered
+  -- empty. pct_complete counts only questions actually in scope for the
+  -- client, so declining a module raises the percentage rather than
+  -- capping it below 100.
   SELECT JSON_ARRAYAGG(
            JSON_OBJECT(
              ''id''          VALUE client_id,
              ''companyName'' VALUE company_name,
-             ''updatedAt''   VALUE TO_CHAR(updated_at AT TIME ZONE ''UTC'', ''YYYY-MM-DD"T"HH24:MI:SS"Z"'')
+             ''updatedAt''   VALUE TO_CHAR(updated_at AT TIME ZONE ''UTC'', ''YYYY-MM-DD"T"HH24:MI:SS"Z"''),
+             ''percent''     VALUE pct_complete,
+             ''pendingApproval'' VALUE pending_change_requests
              RETURNING CLOB)
            ORDER BY updated_at DESC RETURNING CLOB)
     INTO l_out
-    FROM iteria_ai.insight_clients
-   WHERE status = ''ACTIVE'';
+    FROM iteria_ai.insight_client_summary
+   WHERE client_status = ''ACTIVE'';
 
   IF l_out IS NULL THEN HTP.P(''[]''); ELSE emit(l_out); END IF;
 EXCEPTION WHEN OTHERS THEN

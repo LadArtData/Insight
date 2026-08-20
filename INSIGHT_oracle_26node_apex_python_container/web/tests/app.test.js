@@ -24,6 +24,33 @@ function countModuleQuestions(moduleCode) {
   return (HTML.match(re) || []).length;
 }
 
+// Derived from the source, never hardcoded: the deck changes whenever a
+// question is split or added, and a test that asserts a literal count just
+// breaks noisily without saying anything useful.
+function countPhase(phase) {
+  return (HTML.match(new RegExp('phase: "' + phase + '"', "g")) || []).length;
+}
+const INTAKE_COUNT = countPhase(1);
+const QUALIFIER_COUNT = countPhase(2);
+// GL is always in scope, so a client declining every optional module still
+// sees intake + qualifiers + GL.
+const GL_ONLY_DECK = INTAKE_COUNT + QUALIFIER_COUNT + countModuleQuestions("GL");
+
+// A value that satisfies whatever the rendered field accepts. Typed fields
+// (number, currency, email, phone) reject prose, so the old "answer N"
+// placeholder no longer works for all of them.
+function validValueFor(win) {
+  const el = win.document.querySelector(".q-input");
+  if (!el || el.tagName === "TEXTAREA") return null; // caller uses its own text
+  switch (el.getAttribute("inputmode")) {
+    case "numeric": return "12";
+    case "decimal": return "5000";
+    case "email":   return "test@example.com";
+    case "tel":     return "+1 555 123 4567";
+    default:        return null;
+  }
+}
+
 // Boots a fresh app instance and advances past the loading screen to
 // Client Records -- every test starts from here.
 async function bootApp(beforeParse) {
@@ -66,6 +93,12 @@ function fillText(win, value) {
   ta.dispatchEvent(new win.Event("input"));
 }
 
+// Fills the current question with something its type will accept.
+function fillValid(win, fallbackText) {
+  const typed = validValueFor(win);
+  fillText(win, typed !== null ? typed : fallbackText);
+}
+
 function clickYn(win, value) {
   const buttons = Array.from(win.document.querySelectorAll(".yn-btn"));
   const btn = buttons.find((b) => b.textContent === value);
@@ -82,10 +115,10 @@ async function clickSkip(win) {
   await wait(10);
 }
 
-// Answers all 10 Phase 1 intake questions with non-blank text.
+// Answers every Phase 1 intake question with a value its type accepts.
 async function fillIntake(win) {
-  for (let i = 0; i < 10; i++) {
-    fillText(win, "answer " + i);
+  for (let i = 0; i < INTAKE_COUNT; i++) {
+    fillValid(win, "answer " + i);
     await clickNext(win);
   }
 }
@@ -105,13 +138,13 @@ async function answerQualifiers(win, { AP = "No", AR = "No", FA = "No", CM = "No
 // the questionnaire hands off to chat. Used by tests that only care about
 // what happens after the deck is complete (chat/summary/export).
 async function finishRemainingQuestions(win) {
-  // Loop, bounded well above the largest possible deck (91), so a stuck
+  // Loop, bounded well above the largest possible deck, so a stuck
   // loop fails fast instead of hanging the suite.
   for (let i = 0; i < 100; i++) {
     if (byId(win, "screen-chat").classList.contains("active")) return;
     const ynButtons = win.document.querySelectorAll(".yn-btn");
     if (ynButtons.length) clickYn(win, "Yes");
-    else fillText(win, "answer");
+    else fillValid(win, "answer");
     await clickNext(win);
   }
   throw new Error("finishRemainingQuestions: never reached chat screen");
@@ -123,15 +156,15 @@ test("validation gate rejects an empty required answer", async () => {
   byId(win, "btn-new-client").click();
   await clickNext(win); // INTAKE-001 required, left blank
   assert.match(byId(win, "q-field-error").textContent, /required/i);
-  assert.equal(progressLabel(win), "1 / 42");
+  assert.equal(progressLabel(win), "1 / " + GL_ONLY_DECK);
 });
 
-test("phase 1 intake progresses 1/42 -> 11/42 into phase 2 qualifiers", async () => {
+test("phase 1 intake advances through every intake question into phase 2 qualifiers", async () => {
   const dom = await bootApp();
   const win = dom.window;
   byId(win, "btn-new-client").click();
   await fillIntake(win);
-  assert.equal(progressLabel(win), "11 / 42");
+  assert.equal(progressLabel(win), (INTAKE_COUNT + 1) + " / " + GL_ONLY_DECK);
   assert.match(byId(win, "q-eyebrow").textContent, /Phase 2/);
 });
 
@@ -154,7 +187,7 @@ test("answering a qualifier Yes grows the active deck by that module's question 
   byId(win, "btn-new-client").click();
   await fillIntake(win);
   await clickNext(win); // QUAL-GL locked, advance
-  const before = 42;
+  const before = GL_ONLY_DECK;
   const apCount = countModuleQuestions("AP");
   assert.ok(apCount > 0, "sanity: AP question count should be discoverable from source");
   clickYn(win, "Yes"); // QUAL-AP = Yes
@@ -171,9 +204,9 @@ test("declining a module excludes its questions from the active deck (scope bran
   byId(win, "btn-new-client").click();
   await fillIntake(win);
   await answerQualifiers(win, { AP: "No", AR: "No", FA: "No", CM: "No", MULTI: "No" });
-  // All optional modules declined -- deck should be back to the GL-only baseline (42)
+  // All optional modules declined -- deck should be the GL-only baseline
   const [, denom] = progressLabel(win).split(" / ");
-  assert.equal(Number(denom), 42);
+  assert.equal(Number(denom), GL_ONLY_DECK);
   assert.match(byId(win, "q-eyebrow").textContent, /GL Discovery/);
 });
 
@@ -182,7 +215,7 @@ test("skipped required question resurfaces in AI Follow-Up chat, then clears the
   const win = dom.window;
   byId(win, "btn-new-client").click();
   await fillIntake(win);
-  await answerQualifiers(win); // GL-only deck, 42 total
+  await answerQualifiers(win); // GL-only deck
   // First GL question (GL-001, required, text) -- skip it to create exactly one gap
   await clickSkip(win);
   assert.match(byId(win, "q-eyebrow").textContent, /GL Discovery/);
@@ -264,12 +297,12 @@ test("resume: reopening a saved client restores position at the first unanswered
   byId(win, "btn-new-client").click();
   await fillIntake(win); // now on QUAL-GL (index 10); it's locked with a valid
   // default answer already, so it isn't a "gap" -- the real first unanswered
-  // question is QUAL-AP (index 11), which is where resume should land.
+  // question is the first qualifier, which is where resume should land.
   byId(win, "nav-clients").click();
   await wait(10);
   byId(win, "records-list-area").querySelector('[data-open]').click();
   await wait(10);
-  assert.equal(progressLabel(win), "12 / 42");
+  assert.equal(progressLabel(win), (INTAKE_COUNT + 2) + " / " + GL_ONLY_DECK);
   assert.match(byId(win, "q-eyebrow").textContent, /Phase 2/);
 });
 
@@ -283,7 +316,7 @@ test("crumb navigation: clicking the Questionnaire crumb re-renders the in-progr
   win.document.querySelector('.crumb[data-crumb="questionnaire"]').click();
   await wait(10);
   assert.ok(byId(win, "screen-questionnaire").classList.contains("active"));
-  assert.equal(progressLabel(win), "11 / 42");
+  assert.equal(progressLabel(win), (INTAKE_COUNT + 1) + " / " + GL_ONLY_DECK);
 });
 
 test("D1 regression: leaving chat before the auto-advance timer fires does not force-navigate back to Summary", async () => {
@@ -329,6 +362,7 @@ test("D2 regression: Export Configuration downloads a record snapshot instead of
   assert.ok(byId(win, "screen-summary").classList.contains("active"));
 
   byId(win, "btn-export").click();
+  await wait(50); // export is async now -- it reads the committed record first
 
   assert.equal(alertCalled, false, "export must not fall back to the old mockup alert");
   assert.ok(clickedAnchor, "export should trigger a download anchor click");
@@ -343,7 +377,7 @@ test("quality check: keyboard-mashed text warns and blocks the first Next click"
   byId(win, "q-next").click();
   await wait(10);
   assert.match(byId(win, "q-quality-warning").textContent, /looks short or unclear/i);
-  assert.equal(progressLabel(win), "1 / 42", "must not have advanced on the first click");
+  assert.equal(progressLabel(win), "1 / " + GL_ONLY_DECK, "must not have advanced on the first click");
 });
 
 test("quality check: a bracket-containing answer also warns", async () => {
@@ -354,7 +388,7 @@ test("quality check: a bracket-containing answer also warns", async () => {
   byId(win, "q-next").click();
   await wait(10);
   assert.match(byId(win, "q-quality-warning").textContent, /looks short or unclear/i);
-  assert.equal(progressLabel(win), "1 / 42");
+  assert.equal(progressLabel(win), "1 / " + GL_ONLY_DECK);
 });
 
 test("quality check: clicking Next a second time proceeds anyway (human judgment wins)", async () => {
@@ -364,7 +398,7 @@ test("quality check: clicking Next a second time proceeds anyway (human judgment
   fillText(win, "ewdrefvebrn");
   await clickNext(win); // first click: warns, blocks
   await clickNext(win); // second click: same text, already acknowledged -- proceeds
-  assert.equal(progressLabel(win), "2 / 42");
+  assert.equal(progressLabel(win), "2 / " + GL_ONLY_DECK);
 });
 
 test("quality check: editing the text after a warning re-checks it fresh", async () => {
@@ -378,7 +412,7 @@ test("quality check: editing the text after a warning re-checks it fresh", async
   fillText(win, "Meridian County Government"); // real multi-word answer
   assert.equal(byId(win, "q-quality-warning").classList.contains("show"), false, "warning should clear as soon as the text changes");
   await clickNext(win); // single click -- a normal answer never needed a second confirm
-  assert.equal(progressLabel(win), "2 / 42");
+  assert.equal(progressLabel(win), "2 / " + GL_ONLY_DECK);
 });
 
 test("quality check: normal multi-word answers never trigger the warning", async () => {
@@ -635,4 +669,92 @@ test("editing an already-answered question surfaces the pending-approval count i
     "editing an already-answered question should surface the pending-approval notice, not save silently");
   assert.match(byId(win, "pending-approval-banner-text").textContent, /1 edit is pending review/);
   win.close();
+});
+
+// ---------------------------------------------------------------------------
+// Typed answers. Before these, every question was a free-text box, so
+// "How many legal entities does the client operate?" accepted prose.
+// ---------------------------------------------------------------------------
+
+// Walks forward from the current question until the prompt matches, filling
+// each one it passes with a value that question's own type accepts.
+async function advanceTo(win, pattern) {
+  for (let i = 0; i < 40; i++) {
+    if (pattern.test(byId(win, "q-text").textContent)) return;
+    const yn = win.document.querySelectorAll(".yn-btn");
+    if (yn.length) clickYn(win, "Yes");
+    else fillValid(win, "placeholder answer " + i);
+    await clickNext(win);
+  }
+  throw new Error("advanceTo: never reached " + pattern);
+}
+
+test("typed answer: a 'how many' question rejects prose and accepts a number", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await advanceTo(win, /How many legal entities/i);
+
+  const field = win.document.querySelector(".q-input");
+  assert.equal(field.tagName, "INPUT", "a numeric question should render a single-line input");
+  assert.equal(field.getAttribute("inputmode"), "numeric");
+
+  const at = progressLabel(win);
+  fillText(win, "dsarha gavrb"); // the exact value that used to be accepted
+  await clickNext(win);
+  assert.match(byId(win, "q-field-error").textContent, /number/i,
+    "prose in a numeric field must be rejected");
+  assert.equal(progressLabel(win), at, "must not advance on an invalid number");
+
+  fillText(win, "14");
+  await clickNext(win);
+  assert.notEqual(progressLabel(win), at, "a valid number should advance");
+});
+
+test("typed answer: the email question rejects a non-address", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await advanceTo(win, /email address/i);
+
+  assert.equal(win.document.querySelector(".q-input").getAttribute("inputmode"), "email");
+  const at = progressLabel(win);
+  fillText(win, "greenlantern");
+  await clickNext(win);
+  assert.match(byId(win, "q-field-error").textContent, /email/i);
+  assert.equal(progressLabel(win), at);
+
+  fillText(win, "greenlantern@latern.com");
+  await clickNext(win);
+  assert.notEqual(progressLabel(win), at);
+});
+
+test("typed answer: an optional typed field may be left blank but not filled with junk", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await advanceTo(win, /phone number/i);
+
+  const at = progressLabel(win);
+  // Junk is rejected even though the question is optional -- the rule is
+  // about the format of what was typed, not about whether it was required.
+  fillText(win, "call me maybe");
+  await clickNext(win);
+  assert.match(byId(win, "q-field-error").textContent, /phone/i);
+  assert.equal(progressLabel(win), at);
+
+  fillText(win, ""); // blank is fine on an optional question
+  await clickNext(win);
+  assert.notEqual(progressLabel(win), at, "an optional typed field should accept blank");
+});
+
+test("typed answer: free-text questions still take prose", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  const field = win.document.querySelector(".q-input");
+  assert.equal(field.tagName, "TEXTAREA", "INTAKE-001 is free text");
+  fillText(win, "Meridian County Government");
+  await clickNext(win);
+  assert.equal(byId(win, "q-field-error").textContent.trim(), "");
 });

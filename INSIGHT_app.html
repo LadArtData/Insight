@@ -118,6 +118,17 @@
   textarea.q-input::placeholder { color: var(--ink-muted); }
   textarea.q-input:focus { outline: none; border-color: var(--orange); }
 
+  /* Typed answers (number, currency, email, phone) get a single-line field.
+     Same styling as the textarea so the form doesn't look inconsistent --
+     the shorter height is the cue that a short, specific answer is wanted. */
+  input.q-input-single {
+    width: 100%; border-radius: 12px; border: 1.5px solid var(--line);
+    background: rgba(255,255,255,0.03); color: var(--ink-light); font-family: inherit; font-size: 0.92rem;
+    padding: 14px;
+  }
+  input.q-input-single::placeholder { color: var(--ink-muted); }
+  input.q-input-single:focus { outline: none; border-color: var(--orange); }
+
   .q-actions { display: flex; justify-content: space-between; margin-top: 26px; }
   .q-actions-right { display: flex; gap: 10px; }
   .q-skip-note { font-size: 0.72rem; color: var(--ink-muted); margin-top: 10px; }
@@ -439,7 +450,7 @@
   // Two implementations, chosen at startup:
   //
   //   1. ORDS-backed. Talks to the insight module
-  //      (sql/INSIGHT_07_ords_questionnaire_module.sql) through the
+  //      (sql/INSIGHT_06_ords_module.sql) through the
   //      container's nginx, which proxies /ords/ and attaches the api_key
   //      server-side. Records persist in Oracle and are shared across
   //      everyone using that deployment.
@@ -684,10 +695,15 @@
   // scripts/gen-js-questions.js from questions/insight_questions.json
   var ALL_QUESTIONS = [
     { id: "INTAKE-001", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the client\'s full legal company name, and what should we call them informally?', type: "text", answer: null, required: true },
-    { id: "INTAKE-002", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'Who is the primary contact for this engagement (name, title, email, phone)?', type: "text", answer: null, required: true },
+    { id: "INTAKE-002", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s full name?', type: "text", answer: null, required: true },
+    { id: "INTAKE-002B", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s job title or role?', type: "text", answer: null, required: true },
+    { id: "INTAKE-002C", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s email address?', type: "email", answer: null, required: true },
+    { id: "INTAKE-002D", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s phone number?', type: "phone", answer: null, required: false },
     { id: "INTAKE-003", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'Who else should be considered a key stakeholder or decision-maker (e.g., CFO, Controller, IT Director)?', type: "text", answer: null, required: false },
     { id: "INTAKE-004", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'What industry/sector is the client in, and approximately how large are they (employee count and/or annual revenue)?', type: "text", answer: null, required: true },
-    { id: "INTAKE-005", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'Roughly how many legal entities, subsidiaries, or locations does the client operate?', type: "text", answer: null, required: false },
+    { id: "INTAKE-005", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'How many legal entities does the client operate?', type: "number", answer: null, required: false },
+    { id: "INTAKE-005B", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'How many subsidiaries does the client operate?', type: "number", answer: null, required: false },
+    { id: "INTAKE-005C", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'How many physical locations or sites does the client operate?', type: "number", answer: null, required: false },
     { id: "INTAKE-006", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Current Environment', text: 'What ERP or financial system(s) is the client currently using, and are they still under contract/support?', type: "text", answer: null, required: true },
     { id: "INTAKE-007", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Current Environment', text: 'Are there other systems already in place that will need to integrate with Oracle Fusion (e.g., payroll, procurement, banking, CRM)?', type: "text", answer: null, required: false },
     { id: "INTAKE-008", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Reason for Engagement', text: 'What prompted the client to reach out now (e.g., system end-of-life, growth, compliance, M&A, dissatisfaction with current provider)?', type: "text", answer: null, required: true },
@@ -722,7 +738,9 @@
     { id: "GL-021", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Allocations', text: 'Should allocations be calculated and generated dynamically during period-close or on a set recurring schedule?', type: "text", answer: null, required: false },
     { id: "GL-022", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Grant & Compliance Reporting (HHS / Federal / State)', text: 'How do you currently track allowable vs. unallowable costs, federal awards, and state reporting codes?', type: "text", answer: null, required: false },
     { id: "GL-023", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Grant & Compliance Reporting (HHS / Federal / State)', text: 'What specific metadata fields need to be attached to accounts or activities to satisfy external grant reporting (e.g., Assistance Listing/CFDA numbers, PMS subaccounts, Grant Manager names)?', type: "text", answer: null, required: false },
-    { id: "GL-024", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'How many years of historical transactional data, summary account balances, and budget history need to be converted from the legacy system?', type: "text", answer: null, required: true },
+    { id: "GL-024", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'How many years of historical transactional data need to be converted from the legacy system?', type: "number", answer: null, required: true },
+    { id: "GL-024B", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'How many years of summary account balances need to be converted?', type: "number", answer: null, required: true },
+    { id: "GL-024C", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'How many years of budget history need to be converted?', type: "number", answer: null, required: true },
     { id: "GL-025", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'What third-party or banking interfaces need to feed directly into the general ledger or subledgers?', type: "text", answer: null, required: true },
     { id: "GL-026", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'What standard financial statements (Balance Sheet, Income Statement, Cash Flow), operational tracking reports, and state/federal regulatory filings must be built out of the box?', type: "text", answer: null, required: true },
     { id: "AP-001", module: "AP", phase: "3", eyebrow: 'Phase 3 · AP Discovery — Supplier Management & Setup', text: 'What is the current process for onboarding and approving new suppliers (e.g., required documentation, W-9/tax forms, banking details)?', type: "text", answer: null, required: true },
@@ -754,7 +772,7 @@
     { id: "AR-012", module: "AR", phase: "3", eyebrow: 'Phase 3 · AR Discovery — Interfaces & Reporting', text: 'What AR-specific reports are required (aging, DSO, cash forecast, customer statements)?', type: "text", answer: null, required: true },
     { id: "FA-001", module: "FA", phase: "3", eyebrow: 'Phase 3 · FA Discovery — Asset Categories & Setup', text: 'How are assets categorized (e.g., by type, useful life, depreciation method)?', type: "text", answer: null, required: true },
     { id: "FA-002", module: "FA", phase: "3", eyebrow: 'Phase 3 · FA Discovery — Asset Categories & Setup', text: 'Do you require multiple depreciation books (e.g., corporate, tax, budget)?', type: "text", answer: null, required: true },
-    { id: "FA-003", module: "FA", phase: "3", eyebrow: 'Phase 3 · FA Discovery — Asset Acquisition & Capitalization', text: 'What dollar threshold determines whether a purchase is capitalized versus expensed?', type: "text", answer: null, required: true },
+    { id: "FA-003", module: "FA", phase: "3", eyebrow: 'Phase 3 · FA Discovery — Asset Acquisition & Capitalization', text: 'What dollar threshold determines whether a purchase is capitalized versus expensed?', type: "currency", answer: null, required: true },
     { id: "FA-004", module: "FA", phase: "3", eyebrow: 'Phase 3 · FA Discovery — Asset Acquisition & Capitalization', text: 'How are assets under construction (CIP) tracked and transferred to in-service status?', type: "text", answer: null, required: false },
     { id: "FA-005", module: "FA", phase: "3", eyebrow: 'Phase 3 · FA Discovery — Asset Acquisition & Capitalization', text: 'Are assets added manually, via mass additions from AP, or via project costing interfaces?', type: "text", answer: null, required: true },
     { id: "FA-006", module: "FA", phase: "3", eyebrow: 'Phase 3 · FA Discovery — Depreciation', text: 'What depreciation methods and useful lives apply by asset category (e.g., straight-line, declining balance)?', type: "text", answer: null, required: true },
@@ -765,7 +783,9 @@
     { id: "FA-011", module: "FA", phase: "3", eyebrow: 'Phase 3 · FA Discovery — Physical Inventory & Tracking', text: 'Are assets tagged/barcoded, and does location tracking need to integrate with other systems?', type: "text", answer: null, required: false },
     { id: "FA-012", module: "FA", phase: "3", eyebrow: 'Phase 3 · FA Discovery — Reporting & Compliance', text: 'What tax depreciation reporting (e.g., federal/state tax books) is required?', type: "text", answer: null, required: true },
     { id: "FA-013", module: "FA", phase: "3", eyebrow: 'Phase 3 · FA Discovery — Reporting & Compliance', text: 'What standard FA reports are required (asset register, depreciation forecast, disposal summary)?', type: "text", answer: null, required: true },
-    { id: "CM-001", module: "CM", phase: "3", eyebrow: 'Phase 3 · CM Discovery — Bank Account Structure', text: 'How many bank accounts and banking relationships need to be set up, and at what level (legal entity, business unit)?', type: "text", answer: null, required: true },
+    { id: "CM-001", module: "CM", phase: "3", eyebrow: 'Phase 3 · CM Discovery — Bank Account Structure', text: 'How many bank accounts need to be set up?', type: "number", answer: null, required: true },
+    { id: "CM-001B", module: "CM", phase: "3", eyebrow: 'Phase 3 · CM Discovery — Bank Account Structure', text: 'How many separate banking relationships (distinct banks) are involved?', type: "number", answer: null, required: true },
+    { id: "CM-001C", module: "CM", phase: "3", eyebrow: 'Phase 3 · CM Discovery — Bank Account Structure', text: 'At what level are bank accounts held (legal entity, business unit)?', type: "text", answer: null, required: true },
     { id: "CM-002", module: "CM", phase: "3", eyebrow: 'Phase 3 · CM Discovery — Bank Account Structure', text: 'Who requires access to bank account setup and reconciliation, and what segregation of duties is required?', type: "text", answer: null, required: true },
     { id: "CM-003", module: "CM", phase: "3", eyebrow: 'Phase 3 · CM Discovery — Cash Positioning & Forecasting', text: 'How frequently is cash position reviewed, and what visibility is needed across entities/currencies?', type: "text", answer: null, required: true },
     { id: "CM-004", module: "CM", phase: "3", eyebrow: 'Phase 3 · CM Discovery — Cash Positioning & Forecasting', text: 'Is cash forecasting required, and what data feeds into it (AP/AR projections, payroll, etc.)?', type: "text", answer: null, required: false },
@@ -1015,14 +1035,64 @@
     });
   }
 
+  // ---------------- Typed answers ----------------
+  // A question's type decides what the field accepts. Before these existed
+  // every question was a free-text box, so "How many legal entities does
+  // the client operate?" would take any prose at all -- and questions that
+  // asked for several facts at once ("name, title, email, phone") had no
+  // single valid shape to check against, which is why those were split into
+  // separate questions.
+  //
+  // Format checks only. Whether a plausible-looking answer is the RIGHT
+  // answer is a human judgement, and the soft quality warning below covers
+  // free text without blocking anyone.
+  var TYPE_RULES = {
+    number: {
+      inputMode: "numeric",
+      placeholder: "Enter a number…",
+      // Digits with optional decimals and thousands separators. A leading
+      // "~" or "approx" is deliberately NOT allowed: the question asks for
+      // a count, and qualifiers belong in a follow-up, not in the number.
+      test: function (v) { return /^\d{1,3}(,\d{3})*(\.\d+)?$|^\d+(\.\d+)?$/.test(v); },
+      message: "Enter a number — digits only (for example 14)."
+    },
+    currency: {
+      inputMode: "decimal",
+      placeholder: "Enter an amount…",
+      test: function (v) { return /^\$?\s*\d{1,3}(,\d{3})*(\.\d{1,2})?$|^\$?\s*\d+(\.\d{1,2})?$/.test(v); },
+      message: "Enter an amount — for example 5000 or $5,000."
+    },
+    email: {
+      inputMode: "email",
+      placeholder: "name@company.com",
+      test: function (v) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v); },
+      message: "Enter a valid email address — for example name@company.com."
+    },
+    phone: {
+      inputMode: "tel",
+      placeholder: "+1 555 123 4567",
+      // Deliberately loose on punctuation and country format; strict only
+      // on having enough digits to be a real number.
+      test: function (v) { return /^[+()\-.\s\d]+$/.test(v) && (v.match(/\d/g) || []).length >= 7; },
+      message: "Enter a valid phone number — at least 7 digits."
+    }
+  };
+  function isTypedField(q) { return !!TYPE_RULES[q.type]; }
+
   function validateAnswer(q) {
-    if (!q.required) return null;
     if (q.type === "yn") {
+      if (!q.required) return null;
       return q.answer === "Yes" || q.answer === "No" ? null : "Select Yes or No to continue.";
     }
     var v = (q.answer || "").trim();
-    if (!v) return "This question is required — enter an answer to continue.";
+    if (!v) {
+      // Format rules apply to what was typed, so a blank optional field is
+      // still fine -- only "required" decides whether blank is allowed.
+      return q.required ? "This question is required — enter an answer to continue." : null;
+    }
     if (v.length > MAX_ANSWER_LEN) return "Answer must be " + MAX_ANSWER_LEN + " characters or fewer.";
+    var rule = TYPE_RULES[q.type];
+    if (rule && !rule.test(v)) return rule.message;
     return null;
   }
   // Blank check independent of required -- used to decide whether a
@@ -1097,17 +1167,32 @@
         area.appendChild(note);
       }
     } else {
-      var ta = document.createElement("textarea");
-      ta.className = "q-input";
-      ta.placeholder = "Type the client's answer here…";
+      var rule = TYPE_RULES[q.type];
+      // A single-line <input> for typed answers, a textarea for prose. The
+      // element carries inputmode so phones show the right keypad, and the
+      // character counter is dropped -- it's noise next to a field that
+      // only accepts a number or an address.
+      var ta = document.createElement(rule ? "input" : "textarea");
+      ta.className = "q-input" + (rule ? " q-input-single" : "");
+      if (rule) {
+        ta.type = "text";               // not type=number: it hides what was typed when invalid
+        ta.setAttribute("inputmode", rule.inputMode);
+        ta.placeholder = rule.placeholder;
+      } else {
+        ta.placeholder = "Type the client's answer here…";
+      }
       ta.maxLength = MAX_ANSWER_LEN;
       ta.value = q.answer || "";
-      var counter = document.createElement("div");
-      counter.className = "char-count";
+      var counter = null;
       function updateCounter() {
+        if (!counter) return;
         var len = ta.value.length;
         counter.textContent = len + " / " + MAX_ANSWER_LEN;
         counter.classList.toggle("over", len > MAX_ANSWER_LEN * 0.95);
+      }
+      if (!rule) {
+        counter = document.createElement("div");
+        counter.className = "char-count";
       }
       ta.addEventListener("input", function () {
         q.answer = ta.value;
@@ -1121,8 +1206,13 @@
         updateCounter();
       });
       area.appendChild(ta);
-      area.appendChild(counter);
-      updateCounter();
+      if (counter) { area.appendChild(counter); updateCounter(); }
+      if (rule) {
+        var hint = document.createElement("p");
+        hint.className = "q-skip-note";
+        hint.textContent = rule.message.replace(/^Enter /, "Expects ");
+        area.appendChild(hint);
+      }
     }
   }
 
@@ -1314,21 +1404,44 @@
     showScreen("records");
     renderRecordsScreen();
   }));
-  document.getElementById("btn-export").addEventListener("click", safe(function () {
-    var answers = {};
-    var skipped = {};
-    ALL_QUESTIONS.forEach(function (q) {
-      answers[q.id] = q.answer;
-      if (q.skipped) skipped[q.id] = true;
+  document.getElementById("btn-export").addEventListener("click", safe(async function () {
+    // Exports what the DATABASE holds, not what is on screen. Those differ:
+    // editing an already-answered question raises a change request rather
+    // than overwriting, so the edited value shows in the UI while the
+    // committed value is still the old one. An export is the artifact that
+    // leaves the building, so it has to reflect what is actually of record
+    // -- otherwise the approval workflow silently exports unapproved data.
+    var record = null;
+    if (currentClient.id) {
+      try {
+        record = await getClientRecord(currentClient.id);
+      } catch (err) {
+        record = null;
+      }
+    }
+    var source = "database";
+    if (!record) {
+      // No backend (or the record isn't saved yet): fall back to on-screen
+      // state and say so in the file, rather than exporting nothing.
+      source = "unsaved-session";
+      var answers = {};
+      var skipped = {};
+      ALL_QUESTIONS.forEach(function (q) {
+        answers[q.id] = q.answer;
+        if (q.skipped) skipped[q.id] = true;
+      });
+      record = {
+        id: currentClient.id,
+        companyName: currentClient.companyName || "Unnamed client",
+        answers: answers,
+        skipped: skipped,
+        createdAt: currentClient.createdAt || null
+      };
+    }
+    record = Object.assign({}, record, {
+      exportedAt: new Date().toISOString(),
+      exportSource: source
     });
-    var record = {
-      id: currentClient.id,
-      companyName: currentClient.companyName || "Unnamed client",
-      answers: answers,
-      skipped: skipped,
-      createdAt: currentClient.createdAt || null,
-      exportedAt: new Date().toISOString()
-    };
     var blob = new Blob([JSON.stringify(record, null, 2)], { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");

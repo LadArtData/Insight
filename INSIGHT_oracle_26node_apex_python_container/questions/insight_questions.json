@@ -15,11 +15,44 @@
     "module_code": "INTAKE",
     "phase": 1,
     "eyebrow": "Phase 1 · Client Intake — Client Identification",
-    "question_text": "Who is the primary contact for this engagement (name, title, email, phone)?",
+    "question_text": "What is the primary contact's full name?",
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
     "display_order": 2
+  },
+  {
+    "question_id": "INTAKE-002B",
+    "module_code": "INTAKE",
+    "phase": 1,
+    "eyebrow": "Phase 1 · Client Intake — Client Identification",
+    "question_text": "What is the primary contact's job title or role?",
+    "answer_type": "text",
+    "is_required": 1,
+    "is_locked": 0,
+    "display_order": 3
+  },
+  {
+    "question_id": "INTAKE-002C",
+    "module_code": "INTAKE",
+    "phase": 1,
+    "eyebrow": "Phase 1 · Client Intake — Client Identification",
+    "question_text": "What is the primary contact's email address?",
+    "answer_type": "email",
+    "is_required": 1,
+    "is_locked": 0,
+    "display_order": 4
+  },
+  {
+    "question_id": "INTAKE-002D",
+    "module_code": "INTAKE",
+    "phase": 1,
+    "eyebrow": "Phase 1 · Client Intake — Client Identification",
+    "question_text": "What is the primary contact's phone number?",
+    "answer_type": "phone",
+    "is_required": 0,
+    "is_locked": 0,
+    "display_order": 5
   },
   {
     "question_id": "INTAKE-003",
@@ -30,7 +63,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 3
+    "display_order": 6
   },
   {
     "question_id": "INTAKE-004",
@@ -41,18 +74,40 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 4
+    "display_order": 7
   },
   {
     "question_id": "INTAKE-005",
     "module_code": "INTAKE",
     "phase": 1,
     "eyebrow": "Phase 1 · Client Intake — Company Profile",
-    "question_text": "Roughly how many legal entities, subsidiaries, or locations does the client operate?",
-    "answer_type": "text",
+    "question_text": "How many legal entities does the client operate?",
+    "answer_type": "number",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 5
+    "display_order": 8
+  },
+  {
+    "question_id": "INTAKE-005B",
+    "module_code": "INTAKE",
+    "phase": 1,
+    "eyebrow": "Phase 1 · Client Intake — Company Profile",
+    "question_text": "How many subsidiaries does the client operate?",
+    "answer_type": "number",
+    "is_required": 0,
+    "is_locked": 0,
+    "display_order": 9
+  },
+  {
+    "question_id": "INTAKE-005C",
+    "module_code": "INTAKE",
+    "phase": 1,
+    "eyebrow": "Phase 1 · Client Intake — Company Profile",
+    "question_text": "How many physical locations or sites does the client operate?",
+    "answer_type": "number",
+    "is_required": 0,
+    "is_locked": 0,
+    "display_order": 10
   },
   {
     "question_id": "INTAKE-006",
@@ -63,7 +118,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 6
+    "display_order": 11
   },
   {
     "question_id": "INTAKE-007",
@@ -74,7 +129,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 7
+    "display_order": 12
   },
   {
     "question_id": "INTAKE-008",
@@ -85,7 +140,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 8
+    "display_order": 13
   },
   {
     "question_id": "INTAKE-009",
@@ -96,7 +151,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 9
+    "display_order": 14
   },
   {
     "question_id": "INTAKE-010",
@@ -107,7 +162,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 10
+    "display_order": 15
   },
   {
     "question_id": "QUAL-GL",
@@ -118,7 +173,7 @@
     "answer_type": "yn",
     "is_required": 1,
     "is_locked": 1,
-    "display_order": 11
+    "display_order": 16
   },
   {
     "question_id": "QUAL-AP",
@@ -129,7 +184,7 @@
     "answer_type": "yn",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 12
+    "display_order": 17
   },
   {
     "question_id": "QUAL-AR",
@@ -140,7 +195,7 @@
     "answer_type": "yn",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 13
+    "display_order": 18
   },
   {
     "question_id": "QUAL-FA",
@@ -151,7 +206,7 @@
     "answer_type": "yn",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 14
+    "display_order": 19
   },
   {
     "question_id": "QUAL-CM",
@@ -162,7 +217,7 @@
     "answer_type": "yn",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 15
+    "display_order": 20
   },
   {
     "question_id": "QUAL-MULTI",
@@ -173,7 +228,7 @@
     "answer_type": "yn",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 16
+    "display_order": 21
   },
   {
     "question_id": "GL-001",
@@ -184,7 +239,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 17
+    "display_order": 22
   },
   {
     "question_id": "GL-002",
@@ -195,7 +250,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 18
+    "display_order": 23
   },
   {
     "question_id": "GL-003",
@@ -206,7 +261,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 19
+    "display_order": 24
   },
   {
     "question_id": "GL-004",
@@ -217,7 +272,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 20
+    "display_order": 25
   },
   {
     "question_id": "GL-005",
@@ -228,7 +283,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 21
+    "display_order": 26
   },
   {
     "question_id": "GL-006",
@@ -239,7 +294,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 22
+    "display_order": 27
   },
   {
     "question_id": "GL-007",
@@ -250,7 +305,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 23
+    "display_order": 28
   },
   {
     "question_id": "GL-008",
@@ -261,7 +316,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 24
+    "display_order": 29
   },
   {
     "question_id": "GL-009",
@@ -272,7 +327,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 25
+    "display_order": 30
   },
   {
     "question_id": "GL-010",
@@ -283,7 +338,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 26
+    "display_order": 31
   },
   {
     "question_id": "GL-011",
@@ -294,7 +349,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 27
+    "display_order": 32
   },
   {
     "question_id": "GL-012",
@@ -305,7 +360,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 28
+    "display_order": 33
   },
   {
     "question_id": "GL-013",
@@ -316,7 +371,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 29
+    "display_order": 34
   },
   {
     "question_id": "GL-014",
@@ -327,7 +382,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 30
+    "display_order": 35
   },
   {
     "question_id": "GL-015",
@@ -338,7 +393,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 31
+    "display_order": 36
   },
   {
     "question_id": "GL-016",
@@ -349,7 +404,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 32
+    "display_order": 37
   },
   {
     "question_id": "GL-017",
@@ -360,7 +415,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 33
+    "display_order": 38
   },
   {
     "question_id": "GL-018",
@@ -371,7 +426,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 34
+    "display_order": 39
   },
   {
     "question_id": "GL-019",
@@ -382,7 +437,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 35
+    "display_order": 40
   },
   {
     "question_id": "GL-020",
@@ -393,7 +448,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 36
+    "display_order": 41
   },
   {
     "question_id": "GL-021",
@@ -404,7 +459,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 37
+    "display_order": 42
   },
   {
     "question_id": "GL-022",
@@ -415,7 +470,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 38
+    "display_order": 43
   },
   {
     "question_id": "GL-023",
@@ -426,18 +481,40 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 39
+    "display_order": 44
   },
   {
     "question_id": "GL-024",
     "module_code": "GL",
     "phase": 3,
     "eyebrow": "Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting",
-    "question_text": "How many years of historical transactional data, summary account balances, and budget history need to be converted from the legacy system?",
-    "answer_type": "text",
+    "question_text": "How many years of historical transactional data need to be converted from the legacy system?",
+    "answer_type": "number",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 40
+    "display_order": 45
+  },
+  {
+    "question_id": "GL-024B",
+    "module_code": "GL",
+    "phase": 3,
+    "eyebrow": "Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting",
+    "question_text": "How many years of summary account balances need to be converted?",
+    "answer_type": "number",
+    "is_required": 1,
+    "is_locked": 0,
+    "display_order": 46
+  },
+  {
+    "question_id": "GL-024C",
+    "module_code": "GL",
+    "phase": 3,
+    "eyebrow": "Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting",
+    "question_text": "How many years of budget history need to be converted?",
+    "answer_type": "number",
+    "is_required": 1,
+    "is_locked": 0,
+    "display_order": 47
   },
   {
     "question_id": "GL-025",
@@ -448,7 +525,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 41
+    "display_order": 48
   },
   {
     "question_id": "GL-026",
@@ -459,7 +536,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 42
+    "display_order": 49
   },
   {
     "question_id": "AP-001",
@@ -470,7 +547,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 43
+    "display_order": 50
   },
   {
     "question_id": "AP-002",
@@ -481,7 +558,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 44
+    "display_order": 51
   },
   {
     "question_id": "AP-003",
@@ -492,7 +569,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 45
+    "display_order": 52
   },
   {
     "question_id": "AP-004",
@@ -503,7 +580,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 46
+    "display_order": 53
   },
   {
     "question_id": "AP-005",
@@ -514,7 +591,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 47
+    "display_order": 54
   },
   {
     "question_id": "AP-006",
@@ -525,7 +602,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 48
+    "display_order": 55
   },
   {
     "question_id": "AP-007",
@@ -536,7 +613,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 49
+    "display_order": 56
   },
   {
     "question_id": "AP-008",
@@ -547,7 +624,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 50
+    "display_order": 57
   },
   {
     "question_id": "AP-009",
@@ -558,7 +635,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 51
+    "display_order": 58
   },
   {
     "question_id": "AP-010",
@@ -569,7 +646,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 52
+    "display_order": 59
   },
   {
     "question_id": "AP-011",
@@ -580,7 +657,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 53
+    "display_order": 60
   },
   {
     "question_id": "AP-012",
@@ -591,7 +668,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 54
+    "display_order": 61
   },
   {
     "question_id": "AP-013",
@@ -602,7 +679,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 55
+    "display_order": 62
   },
   {
     "question_id": "AP-014",
@@ -613,7 +690,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 56
+    "display_order": 63
   },
   {
     "question_id": "AP-015",
@@ -624,7 +701,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 57
+    "display_order": 64
   },
   {
     "question_id": "AR-001",
@@ -635,7 +712,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 58
+    "display_order": 65
   },
   {
     "question_id": "AR-002",
@@ -646,7 +723,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 59
+    "display_order": 66
   },
   {
     "question_id": "AR-003",
@@ -657,7 +734,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 60
+    "display_order": 67
   },
   {
     "question_id": "AR-004",
@@ -668,7 +745,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 61
+    "display_order": 68
   },
   {
     "question_id": "AR-005",
@@ -679,7 +756,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 62
+    "display_order": 69
   },
   {
     "question_id": "AR-006",
@@ -690,7 +767,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 63
+    "display_order": 70
   },
   {
     "question_id": "AR-007",
@@ -701,7 +778,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 64
+    "display_order": 71
   },
   {
     "question_id": "AR-008",
@@ -712,7 +789,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 65
+    "display_order": 72
   },
   {
     "question_id": "AR-009",
@@ -723,7 +800,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 66
+    "display_order": 73
   },
   {
     "question_id": "AR-010",
@@ -734,7 +811,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 67
+    "display_order": 74
   },
   {
     "question_id": "AR-011",
@@ -745,7 +822,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 68
+    "display_order": 75
   },
   {
     "question_id": "AR-012",
@@ -756,7 +833,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 69
+    "display_order": 76
   },
   {
     "question_id": "FA-001",
@@ -767,7 +844,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 70
+    "display_order": 77
   },
   {
     "question_id": "FA-002",
@@ -778,7 +855,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 71
+    "display_order": 78
   },
   {
     "question_id": "FA-003",
@@ -786,10 +863,10 @@
     "phase": 3,
     "eyebrow": "Phase 3 · FA Discovery — Asset Acquisition & Capitalization",
     "question_text": "What dollar threshold determines whether a purchase is capitalized versus expensed?",
-    "answer_type": "text",
+    "answer_type": "currency",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 72
+    "display_order": 79
   },
   {
     "question_id": "FA-004",
@@ -800,7 +877,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 73
+    "display_order": 80
   },
   {
     "question_id": "FA-005",
@@ -811,7 +888,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 74
+    "display_order": 81
   },
   {
     "question_id": "FA-006",
@@ -822,7 +899,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 75
+    "display_order": 82
   },
   {
     "question_id": "FA-007",
@@ -833,7 +910,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 76
+    "display_order": 83
   },
   {
     "question_id": "FA-008",
@@ -844,7 +921,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 77
+    "display_order": 84
   },
   {
     "question_id": "FA-009",
@@ -855,7 +932,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 78
+    "display_order": 85
   },
   {
     "question_id": "FA-010",
@@ -866,7 +943,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 79
+    "display_order": 86
   },
   {
     "question_id": "FA-011",
@@ -877,7 +954,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 80
+    "display_order": 87
   },
   {
     "question_id": "FA-012",
@@ -888,7 +965,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 81
+    "display_order": 88
   },
   {
     "question_id": "FA-013",
@@ -899,18 +976,40 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 82
+    "display_order": 89
   },
   {
     "question_id": "CM-001",
     "module_code": "CM",
     "phase": 3,
     "eyebrow": "Phase 3 · CM Discovery — Bank Account Structure",
-    "question_text": "How many bank accounts and banking relationships need to be set up, and at what level (legal entity, business unit)?",
+    "question_text": "How many bank accounts need to be set up?",
+    "answer_type": "number",
+    "is_required": 1,
+    "is_locked": 0,
+    "display_order": 90
+  },
+  {
+    "question_id": "CM-001B",
+    "module_code": "CM",
+    "phase": 3,
+    "eyebrow": "Phase 3 · CM Discovery — Bank Account Structure",
+    "question_text": "How many separate banking relationships (distinct banks) are involved?",
+    "answer_type": "number",
+    "is_required": 1,
+    "is_locked": 0,
+    "display_order": 91
+  },
+  {
+    "question_id": "CM-001C",
+    "module_code": "CM",
+    "phase": 3,
+    "eyebrow": "Phase 3 · CM Discovery — Bank Account Structure",
+    "question_text": "At what level are bank accounts held (legal entity, business unit)?",
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 83
+    "display_order": 92
   },
   {
     "question_id": "CM-002",
@@ -921,7 +1020,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 84
+    "display_order": 93
   },
   {
     "question_id": "CM-003",
@@ -932,7 +1031,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 85
+    "display_order": 94
   },
   {
     "question_id": "CM-004",
@@ -943,7 +1042,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 86
+    "display_order": 95
   },
   {
     "question_id": "CM-005",
@@ -954,7 +1053,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 87
+    "display_order": 96
   },
   {
     "question_id": "CM-006",
@@ -965,7 +1064,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 88
+    "display_order": 97
   },
   {
     "question_id": "CM-007",
@@ -976,7 +1075,7 @@
     "answer_type": "text",
     "is_required": 0,
     "is_locked": 0,
-    "display_order": 89
+    "display_order": 98
   },
   {
     "question_id": "CM-008",
@@ -987,7 +1086,7 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 90
+    "display_order": 99
   },
   {
     "question_id": "CM-009",
@@ -998,6 +1097,6 @@
     "answer_type": "text",
     "is_required": 1,
     "is_locked": 0,
-    "display_order": 91
+    "display_order": 100
   }
 ]
