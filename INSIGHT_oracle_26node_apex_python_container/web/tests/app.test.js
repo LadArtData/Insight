@@ -758,3 +758,39 @@ test("typed answer: free-text questions still take prose", async () => {
   await clickNext(win);
   assert.equal(byId(win, "q-field-error").textContent.trim(), "");
 });
+
+// ---------------------------------------------------------------------------
+// Per-client scoping. Questionnaire, AI Follow-Up and Summary all render
+// whatever client is loaded into ALL_QUESTIONS, so reaching them without a
+// client showed the previously-opened client's data.
+// ---------------------------------------------------------------------------
+
+test("scoping: Summary cannot be opened without a client", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  assert.ok(byId(win, "screen-records").classList.contains("active"));
+  const crumb = win.document.querySelector('.crumb[data-crumb="summary"]');
+  assert.ok(crumb.classList.contains("disabled"), "crumbs should read as unavailable on the client list");
+  crumb.click();
+  await wait(60);
+  assert.equal(byId(win, "screen-summary").classList.contains("active"), false,
+    "Summary is a per-client view, not global navigation");
+});
+
+test("scoping: leaving a client to the list drops the active client", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await wait(20);
+  fillText(win, "Meridian County");
+  await clickNext(win);
+  assert.equal(win.document.querySelector('.crumb[data-crumb="summary"]').classList.contains("disabled"), false,
+    "crumbs are available while a client is open");
+
+  byId(win, "nav-clients").click();
+  await wait(60);
+  assert.equal(byId(win, "client-context-name").textContent, "",
+    "the client context chip should clear");
+  assert.ok(win.document.querySelector('.crumb[data-crumb="summary"]').classList.contains("disabled"),
+    "and the per-client views should become unavailable again");
+});

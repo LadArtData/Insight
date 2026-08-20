@@ -44,6 +44,10 @@
   }
   .crumb.active { color: var(--navy-deep); background: var(--orange); }
   .crumb.done { color: var(--good); border-color: rgba(53,196,138,0.35); }
+  /* Questionnaire, AI Follow-Up and Summary are all views OF a client, so
+     they are unavailable until one is open. Shown rather than hidden so the
+     shape of the flow stays visible from the client list. */
+  .crumb.disabled { opacity: 0.35; cursor: default; }
 
   .screen {
     flex: 1; display: none; align-items: center; justify-content: center;
@@ -675,6 +679,7 @@
     renderRecordsScreen();
   }));
   document.getElementById("nav-clients").addEventListener("click", safe(function () {
+    clearActiveClient();
     showScreen("records");
     renderRecordsScreen();
   }));
@@ -926,8 +931,33 @@
       nameEl.textContent = currentClient.companyName || "Unnamed client";
       chip.classList.remove("hidden");
     } else {
+      // Blank the name too, not just hide the chip: a hidden element still
+      // holds its text, and leaving the previous client's name sitting in
+      // the DOM is how stale context leaks back into a later view.
+      nameEl.textContent = "";
       chip.classList.add("hidden");
     }
+    setCrumbsEnabled();
+  }
+
+  // Questionnaire, AI Follow-Up and Summary all render the client currently
+  // loaded into ALL_QUESTIONS. With no client open they would render
+  // whatever the last one left behind, which is how Summary could be opened
+  // straight from the client list and show another client's modules.
+  function setCrumbsEnabled() {
+    var enabled = !!currentClient.id;
+    document.querySelectorAll(".crumb").forEach(function (c) {
+      c.classList.toggle("disabled", !enabled);
+      c.setAttribute("aria-disabled", enabled ? "false" : "true");
+      c.title = enabled ? "" : "Open a client first — these are per-client views.";
+    });
+  }
+
+  // Leaving for the client list drops the active client, so the per-client
+  // views cannot be reached without picking one again.
+  function clearActiveClient() {
+    currentClient = { id: null, companyName: "", createdAt: null };
+    updateClientContextChip();
   }
 
   function startNewClient() {
@@ -984,6 +1014,7 @@
     area.innerHTML = '<div class="records-loading">Loading client records…</div>';
     await storageReady;
     updateStorageNote();
+    setCrumbsEnabled();   // no client is open on this screen
     var list;
     try {
       list = await getClientIndex();
@@ -1399,8 +1430,7 @@
 
   // ---------------- Summary ----------------
   document.getElementById("btn-restart").addEventListener("click", safe(function () {
-    currentClient = { id: null, companyName: "", createdAt: null };
-    updateClientContextChip();
+    clearActiveClient();
     showScreen("records");
     renderRecordsScreen();
   }));
@@ -1461,6 +1491,8 @@
   document.querySelectorAll(".crumb").forEach(function (c) {
     c.style.cursor = "pointer";
     c.addEventListener("click", safe(function () {
+      // Per-client views: without a client there is nothing to scope to.
+      if (!currentClient.id) return;
       if (c.dataset.crumb === "questionnaire") {
         var active = getActiveQuestions();
         if (qIndex >= active.length) qIndex = 0;
