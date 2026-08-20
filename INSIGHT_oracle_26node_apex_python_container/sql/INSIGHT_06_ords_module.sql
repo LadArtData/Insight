@@ -473,7 +473,7 @@ END;');
   l_doc         JSON_OBJECT_T;
   l_answers     JSON_OBJECT_T;
   l_skipped     JSON_OBJECT_T;
-  l_unknown     JSON_OBJECT_T;
+  l_unknownmap  JSON_OBJECT_T;
   l_is_unknown  NUMBER;
   l_source      VARCHAR2(20);
   l_keys        JSON_KEY_LIST;
@@ -535,9 +535,9 @@ BEGIN
     -- different things: skipped is come-back-to-it, unknown is settled as
     -- not yet knowable, and only the first should keep being chased.
     IF l_doc.has(''unknown'') THEN
-      l_unknown := l_doc.get_Object(''unknown'');
+      l_unknownmap := l_doc.get_Object(''unknown'');
     ELSE
-      l_unknown := JSON_OBJECT_T.parse(''{}'');
+      l_unknownmap := JSON_OBJECT_T.parse(''{}'');
     END IF;
     -- Anything arriving through this endpoint is sales intake unless the
     -- caller says otherwise; provisional either way, since confirming is a
@@ -549,7 +549,7 @@ BEGIN
       l_qid := SUBSTR(l_keys(i), 1, 20);
       l_val := l_answers.get_String(l_qid);
       l_is_skipped := CASE WHEN l_skipped.has(l_qid) THEN 1 ELSE 0 END;
-      l_is_unknown := CASE WHEN l_unknown.has(l_qid) THEN 1 ELSE 0 END;
+      l_is_unknown := CASE WHEN l_unknownmap.has(l_qid) THEN 1 ELSE 0 END;
 
       SELECT COUNT(*) INTO l_found
         FROM iteria_ai.insight_questions
