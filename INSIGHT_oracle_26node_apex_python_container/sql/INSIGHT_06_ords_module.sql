@@ -120,6 +120,22 @@ END;');
   l_req_key  VARCHAR2(200) := :api_key;
   l_board_id NUMBER := :board_id;
   l_nodes    CLOB;
+  -- HTP.P is declared for VARCHAR2, so handing it a CLOB is PLS-00306 --
+  -- a COMPILE error, which the block''s own EXCEPTION clause can never
+  -- catch, so ORDS reports only ORDS-25001 / HTTP 555. Write the CLOB out
+  -- in chunks instead; these responses can exceed 32767 characters.
+  PROCEDURE emit(p_clob IN CLOB) IS
+    l_len PLS_INTEGER;
+    l_off PLS_INTEGER := 1;
+    l_amt PLS_INTEGER := 8000;
+  BEGIN
+    IF p_clob IS NULL THEN RETURN; END IF;
+    l_len := DBMS_LOB.GETLENGTH(p_clob);
+    WHILE l_off <= l_len LOOP
+      HTP.PRN(DBMS_LOB.SUBSTR(p_clob, l_amt, l_off));
+      l_off := l_off + l_amt;
+    END LOOP;
+  END emit;
 BEGIN
   -- Dynamic SQL on purpose. A static reference to api_configuration makes
   -- the whole handler fail to COMPILE if that table is absent, and a
@@ -137,8 +153,9 @@ BEGIN
 
   l_nodes := iteria_ai.pkg_insight_board_engine.get_matrix_state_json(p_board_id => l_board_id);
 
-  HTP.P(''{"ok":true,"board_id":'' || l_board_id
-       || '',"nodes":'' || NVL(l_nodes, ''[]'') || ''}'' );
+  HTP.PRN(''{"ok":true,"board_id":'' || l_board_id || '',"nodes":'');
+  IF l_nodes IS NULL THEN HTP.PRN(''[]''); ELSE emit(l_nodes); END IF;
+  HTP.PRN(''}'');
 EXCEPTION WHEN OTHERS THEN
   :status := 500;
   HTP.P(''{"ok":false,"error":"'' || REPLACE(SUBSTR(SQLERRM,1,300),''"'',''`'') || ''"}'');
@@ -173,6 +190,22 @@ END;');
   l_event_code VARCHAR2(50);
   l_payload    CLOB;
   l_out        CLOB;
+  -- HTP.P is declared for VARCHAR2, so handing it a CLOB is PLS-00306 --
+  -- a COMPILE error, which the block''s own EXCEPTION clause can never
+  -- catch, so ORDS reports only ORDS-25001 / HTTP 555. Write the CLOB out
+  -- in chunks instead; these responses can exceed 32767 characters.
+  PROCEDURE emit(p_clob IN CLOB) IS
+    l_len PLS_INTEGER;
+    l_off PLS_INTEGER := 1;
+    l_amt PLS_INTEGER := 8000;
+  BEGIN
+    IF p_clob IS NULL THEN RETURN; END IF;
+    l_len := DBMS_LOB.GETLENGTH(p_clob);
+    WHILE l_off <= l_len LOOP
+      HTP.PRN(DBMS_LOB.SUBSTR(p_clob, l_amt, l_off));
+      l_off := l_off + l_amt;
+    END LOOP;
+  END emit;
 BEGIN
   -- Dynamic SQL on purpose. A static reference to api_configuration makes
   -- the whole handler fail to COMPILE if that table is absent, and a
@@ -211,9 +244,11 @@ BEGIN
     RETURN;
   END;
 
-  HTP.P(''{"ok":true,"board_id":'' || l_board_id
-       || '',"node_id":''  || l_node_id
-       || '',"nodes":''    || NVL(l_out, ''[]'') || ''}'' );
+  HTP.PRN(''{"ok":true,"board_id":'' || l_board_id
+        || '',"node_id":''  || l_node_id
+        || '',"nodes":'');
+  IF l_out IS NULL THEN HTP.PRN(''[]''); ELSE emit(l_out); END IF;
+  HTP.PRN(''}'');
 EXCEPTION WHEN OTHERS THEN
   :status := 500;
   HTP.P(''{"ok":false,"error":"'' || REPLACE(SUBSTR(SQLERRM,1,300),''"'',''`'') || ''"}'');
@@ -242,6 +277,22 @@ END;');
   l_api_key VARCHAR2(200);
   l_req_key VARCHAR2(200) := :api_key;
   l_out     CLOB;
+  -- HTP.P is declared for VARCHAR2, so handing it a CLOB is PLS-00306 --
+  -- a COMPILE error, which the block''s own EXCEPTION clause can never
+  -- catch, so ORDS reports only ORDS-25001 / HTTP 555. Write the CLOB out
+  -- in chunks instead; JSON responses here can exceed 32767 characters.
+  PROCEDURE emit(p_clob IN CLOB) IS
+    l_len PLS_INTEGER;
+    l_off PLS_INTEGER := 1;
+    l_amt PLS_INTEGER := 8000;
+  BEGIN
+    IF p_clob IS NULL THEN RETURN; END IF;
+    l_len := DBMS_LOB.GETLENGTH(p_clob);
+    WHILE l_off <= l_len LOOP
+      HTP.PRN(DBMS_LOB.SUBSTR(p_clob, l_amt, l_off));
+      l_off := l_off + l_amt;
+    END LOOP;
+  END emit;
 BEGIN
   -- Dynamic SQL on purpose. A static reference to api_configuration makes
   -- the whole handler fail to COMPILE if that table is absent, and a
@@ -268,7 +319,7 @@ BEGIN
     FROM iteria_ai.insight_clients
    WHERE status = ''ACTIVE'';
 
-  HTP.P(NVL(l_out, ''[]''));
+  IF l_out IS NULL THEN HTP.P(''[]''); ELSE emit(l_out); END IF;
 EXCEPTION WHEN OTHERS THEN
   :status := 500;
   HTP.P(''{"ok":false,"error":"'' || REPLACE(SUBSTR(SQLERRM,1,300),''"'',''`'') || ''"}'');
@@ -302,6 +353,23 @@ END;');
   l_updated   VARCHAR2(30);
   l_answers   CLOB;
   l_skipped   CLOB;
+  l_out       CLOB;
+  -- HTP.P is declared for VARCHAR2, so handing it a CLOB is PLS-00306 --
+  -- a COMPILE error, which the block''s own EXCEPTION clause can never
+  -- catch, so ORDS reports only ORDS-25001 / HTTP 555. Write the CLOB out
+  -- in chunks instead; JSON responses here can exceed 32767 characters.
+  PROCEDURE emit(p_clob IN CLOB) IS
+    l_len PLS_INTEGER;
+    l_off PLS_INTEGER := 1;
+    l_amt PLS_INTEGER := 8000;
+  BEGIN
+    IF p_clob IS NULL THEN RETURN; END IF;
+    l_len := DBMS_LOB.GETLENGTH(p_clob);
+    WHILE l_off <= l_len LOOP
+      HTP.PRN(DBMS_LOB.SUBSTR(p_clob, l_amt, l_off));
+      l_off := l_off + l_amt;
+    END LOOP;
+  END emit;
 BEGIN
   -- Dynamic SQL on purpose. A static reference to api_configuration makes
   -- the whole handler fail to COMPILE if that table is absent, and a
@@ -341,13 +409,20 @@ BEGIN
    WHERE client_id = l_client_id
      AND is_skipped = 1;
 
-  HTP.P(''{"id":'' || JSON_SCALAR(l_client_id)
-       || '',"companyName":'' || JSON_SCALAR(l_name)
-       || '',"answers":''  || NVL(l_answers, ''{}'')
-       || '',"skipped":''  || NVL(l_skipped, ''{}'')
-       || '',"createdAt":'' || JSON_SCALAR(l_created)
-       || '',"updatedAt":'' || JSON_SCALAR(l_updated)
-       || ''}'');
+  -- Built by JSON_OBJECT rather than string concatenation: it escapes the
+  -- values, and it avoids JSON_SCALAR, which does not exist before 21c.
+  SELECT JSON_OBJECT(
+           ''id''          VALUE l_client_id,
+           ''companyName'' VALUE l_name,
+           ''answers''     VALUE NVL(l_answers, TO_CLOB(''{}'')) FORMAT JSON,
+           ''skipped''     VALUE NVL(l_skipped, TO_CLOB(''{}'')) FORMAT JSON,
+           ''createdAt''   VALUE l_created,
+           ''updatedAt''   VALUE l_updated
+           RETURNING CLOB)
+    INTO l_out
+    FROM dual;
+
+  emit(l_out);
 EXCEPTION WHEN OTHERS THEN
   :status := 500;
   HTP.P(''{"ok":false,"error":"'' || REPLACE(SUBSTR(SQLERRM,1,300),''"'',''`'') || ''"}'');
@@ -503,6 +578,7 @@ END;');
   l_api_key   VARCHAR2(200);
   l_req_key   VARCHAR2(200) := :api_key;
   l_client_id VARCHAR2(40)  := :client_id;
+  l_resp      VARCHAR2(4000);
 BEGIN
   -- Dynamic SQL on purpose. A static reference to api_configuration makes
   -- the whole handler fail to COMPILE if that table is absent, and a
@@ -527,7 +603,9 @@ BEGIN
   END IF;
 
   COMMIT;
-  HTP.P(''{"ok":true,"archived":'' || JSON_SCALAR(l_client_id) || ''}'');
+  SELECT JSON_OBJECT(''ok'' VALUE ''true'' FORMAT JSON, ''archived'' VALUE l_client_id)
+    INTO l_resp FROM dual;
+  HTP.P(l_resp);
 EXCEPTION WHEN OTHERS THEN
   ROLLBACK;
   :status := 500;
