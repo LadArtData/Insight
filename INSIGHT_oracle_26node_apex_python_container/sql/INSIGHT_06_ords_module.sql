@@ -79,7 +79,7 @@ BEGIN
   -- at run time instead, a missing table is an ordinary exception, and
   -- "no key table" degrades to "no key required" rather than a dead API.
   BEGIN
-    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.insight_api_config WHERE is_active = ''''Y'''' AND ROWNUM = 1''
       INTO l_api_key;
   EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
@@ -128,7 +128,7 @@ BEGIN
   -- at run time instead, a missing table is an ordinary exception, and
   -- "no key table" degrades to "no key required" rather than a dead API.
   BEGIN
-    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.insight_api_config WHERE is_active = ''''Y'''' AND ROWNUM = 1''
       INTO l_api_key;
   EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
@@ -181,7 +181,7 @@ BEGIN
   -- at run time instead, a missing table is an ordinary exception, and
   -- "no key table" degrades to "no key required" rather than a dead API.
   BEGIN
-    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.insight_api_config WHERE is_active = ''''Y'''' AND ROWNUM = 1''
       INTO l_api_key;
   EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
@@ -250,7 +250,7 @@ BEGIN
   -- at run time instead, a missing table is an ordinary exception, and
   -- "no key table" degrades to "no key required" rather than a dead API.
   BEGIN
-    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.insight_api_config WHERE is_active = ''''Y'''' AND ROWNUM = 1''
       INTO l_api_key;
   EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
@@ -310,7 +310,7 @@ BEGIN
   -- at run time instead, a missing table is an ordinary exception, and
   -- "no key table" degrades to "no key required" rather than a dead API.
   BEGIN
-    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.insight_api_config WHERE is_active = ''''Y'''' AND ROWNUM = 1''
       INTO l_api_key;
   EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
@@ -393,7 +393,7 @@ BEGIN
   -- at run time instead, a missing table is an ordinary exception, and
   -- "no key table" degrades to "no key required" rather than a dead API.
   BEGIN
-    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.insight_api_config WHERE is_active = ''''Y'''' AND ROWNUM = 1''
       INTO l_api_key;
   EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
@@ -511,7 +511,7 @@ BEGIN
   -- at run time instead, a missing table is an ordinary exception, and
   -- "no key table" degrades to "no key required" rather than a dead API.
   BEGIN
-    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.api_configuration WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.insight_api_config WHERE is_active = ''''Y'''' AND ROWNUM = 1''
       INTO l_api_key;
   EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
   IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN

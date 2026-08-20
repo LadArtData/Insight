@@ -20,8 +20,8 @@ BEGIN
   SELECT COUNT(*) INTO l_cnt
     FROM all_objects
    WHERE owner = 'ITERIA_AI'
-     AND object_name = 'API_CONFIGURATION';
-  DBMS_OUTPUT.PUT_LINE('1. ITERIA_AI.API_CONFIGURATION visible to this user: ' ||
+     AND object_name = 'INSIGHT_API_CONFIG';
+  DBMS_OUTPUT.PUT_LINE('1. ITERIA_AI.INSIGHT_API_CONFIG visible to this user: ' ||
     CASE WHEN l_cnt > 0 THEN 'YES' ELSE 'NO  <-- this alone causes ORDS-25001' END);
 END;
 /
@@ -68,11 +68,11 @@ DECLARE
   l_boards  NUMBER := 0;
   l_nodes   NUMBER := 0;
 BEGIN
-  BEGIN SELECT api_key INTO l_api_key FROM iteria_ai.api_configuration
+  BEGIN SELECT api_key INTO l_api_key FROM iteria_ai.insight_api_config
         WHERE is_active='Y' AND ROWNUM=1;
   EXCEPTION WHEN NO_DATA_FOUND THEN l_api_key := NULL; END;
 
-  DBMS_OUTPUT.PUT_LINE('4. active api_key in api_configuration: ' ||
+  DBMS_OUTPUT.PUT_LINE('4. active api_key in insight_api_config: ' ||
     CASE WHEN l_api_key IS NULL THEN '(none - no key required)' ELSE l_api_key END);
   DBMS_OUTPUT.PUT_LINE('   key supplied by the container matches      : ' ||
     CASE WHEN l_api_key IS NULL THEN 'n/a'

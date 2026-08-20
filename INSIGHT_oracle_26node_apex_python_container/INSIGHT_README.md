@@ -73,8 +73,19 @@ never created.
 the product exposes over REST — both the matrix and the questionnaire —
 under one base path. It uses the standard `ORDS.DEFINE_MODULE` /
 `DEFINE_TEMPLATE` / `DEFINE_HANDLER` pattern: `plsql/block` handlers, an
-api_key check against `iteria_ai.api_configuration`, `:body_text` +
-`JSON_VALUE` for POST bodies, and `:status` for HTTP codes.
+api_key check against `iteria_ai.insight_api_config` (`V14`), `:body_text`
++ `JSON_VALUE` for POST bodies, and `:status` for HTTP codes.
+
+The key table is INSIGHT's own. An earlier revision read a table named
+`API_CONFIGURATION` that INSIGHT does not own and no migration here
+creates -- it belongs to something else sharing the schema. Every endpoint
+therefore depended on another product's object being present, and when it
+was not, the handlers died with `ORDS-25001` / HTTP 555. The lookup also
+uses dynamic SQL now, so a missing key table degrades to "no key required"
+instead of taking the API down: a static reference to an absent table is a
+compile error, which the handler's own EXCEPTION clause cannot catch.
+
+No active row in `insight_api_config` means no key is required.
 
 ```
 GET  /ords/admin/insight/health
@@ -104,7 +115,7 @@ Reference the JS from Shared Components > Static Application Files
 - Outside APEX (e.g. opening the HTML file directly): the JS calls the
   native ORDS module above. Set `window.INSIGHT_CONFIG = { ordsBaseUrl,
   boardId, apiKey }` before the script loads if this file isn't served from
-  the same origin as ORDS, or if `iteria_ai.api_configuration` has an
+  the same origin as ORDS, or if `iteria_ai.insight_api_config` has an
   active key.
 
 ## REST layer for the questionnaire
@@ -186,7 +197,7 @@ Configure the proxy with two environment variables:
 | Variable | Required | Value |
 |---|---|---|
 | `ORDS_BASE_URL` | to reach ORDS | `scheme://host` of the ORDS server, **no path**, e.g. `https://abc-insight.adb.us-ashburn-1.oraclecloudapps.com` |
-| `ORDS_API_KEY` | only if a key is active | Matching value from `iteria_ai.api_configuration` |
+| `ORDS_API_KEY` | only if a key is active | Matching value from `iteria_ai.insight_api_config` |
 
 ```bash
 docker run -p 8000:8000 \
