@@ -362,6 +362,7 @@ END;');
   l_updated   VARCHAR2(30);
   l_answers   CLOB;
   l_skipped   CLOB;
+  l_unknownm  CLOB;
   l_out       CLOB;
   -- HTP.P is declared for VARCHAR2, so handing it a CLOB is PLS-00306 --
   -- a COMPILE error, which the block''s own EXCEPTION clause can never
@@ -418,6 +419,12 @@ BEGIN
    WHERE client_id = l_client_id
      AND is_skipped = 1;
 
+  SELECT JSON_OBJECTAGG(KEY question_id VALUE ''true'' FORMAT JSON RETURNING CLOB)
+    INTO l_unknownm
+    FROM iteria_ai.insight_client_answers
+   WHERE client_id = l_client_id
+     AND is_unknown = 1;
+
   -- Built by JSON_OBJECT rather than string concatenation: it escapes the
   -- values, and it avoids JSON_SCALAR, which does not exist before 21c.
   SELECT JSON_OBJECT(
@@ -425,6 +432,7 @@ BEGIN
            ''companyName'' VALUE l_name,
            ''answers''     VALUE NVL(l_answers, TO_CLOB(''{}'')) FORMAT JSON,
            ''skipped''     VALUE NVL(l_skipped, TO_CLOB(''{}'')) FORMAT JSON,
+           ''unknown''     VALUE NVL(l_unknownm, TO_CLOB(''{}'')) FORMAT JSON,
            ''createdAt''   VALUE l_created,
            ''updatedAt''   VALUE l_updated
            RETURNING CLOB)
@@ -456,6 +464,9 @@ END;');
   l_doc         JSON_OBJECT_T;
   l_answers     JSON_OBJECT_T;
   l_skipped     JSON_OBJECT_T;
+  l_unknown     JSON_OBJECT_T;
+  l_is_unknown  NUMBER;
+  l_source      VARCHAR2(20);
   l_keys        JSON_KEY_LIST;
   l_qid         VARCHAR2(20);
   l_val         CLOB;
@@ -511,12 +522,25 @@ BEGIN
     ELSE
       l_skipped := JSON_OBJECT_T.parse(''{}'');
     END IF;
+    -- "Not known yet" travels as its own map, parallel to skipped. They mean
+    -- different things: skipped is come-back-to-it, unknown is settled as
+    -- not yet knowable, and only the first should keep being chased.
+    IF l_doc.has(''unknown'') THEN
+      l_unknown := l_doc.get_Object(''unknown'');
+    ELSE
+      l_unknown := JSON_OBJECT_T.parse(''{}'');
+    END IF;
+    -- Anything arriving through this endpoint is sales intake unless the
+    -- caller says otherwise; provisional either way, since confirming is a
+    -- separate act.
+    l_source := SUBSTR(NVL(l_doc.get_String(''source''), ''SALES_INTAKE''), 1, 20);
 
     l_keys := l_answers.get_keys;
     FOR i IN 1 .. l_keys.COUNT LOOP
       l_qid := SUBSTR(l_keys(i), 1, 20);
       l_val := l_answers.get_String(l_qid);
       l_is_skipped := CASE WHEN l_skipped.has(l_qid) THEN 1 ELSE 0 END;
+      l_is_unknown := CASE WHEN l_unknown.has(l_qid) THEN 1 ELSE 0 END;
 
       SELECT COUNT(*) INTO l_found
         FROM iteria_ai.insight_questions
@@ -546,6 +570,8 @@ BEGIN
             p_value       => l_val,
             p_actor       => l_actor,
             p_is_skipped  => l_is_skipped,
+            p_source      => l_source,
+            p_is_unknown  => l_is_unknown,
             x_out_status  => l_status);
           IF l_status = ''PENDING_APPROVAL'' THEN
             l_pending := l_pending + 1;

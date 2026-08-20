@@ -794,3 +794,93 @@ test("scoping: leaving a client to the list drops the active client", async () =
   assert.ok(win.document.querySelector('.crumb[data-crumb="summary"]').classList.contains("disabled"),
     "and the per-client views should become unavailable again");
 });
+
+// ---------------------------------------------------------------------------
+// "Not known yet" -- a deliberate answer, distinct from Skip. Skipped means
+// come back to it and the chat chases it; unknown means it was considered
+// and settled as not yet knowable, so it should stop being chased.
+// ---------------------------------------------------------------------------
+
+test("not-known: satisfies a required question without inventing a value", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await wait(20);
+  const at = progressLabel(win);
+  // INTAKE-001 is required; Next alone is blocked.
+  await clickNext(win);
+  assert.match(byId(win, "q-field-error").textContent, /required/i);
+  assert.equal(progressLabel(win), at);
+
+  byId(win, "q-unknown").click();
+  await wait(30);
+  assert.notEqual(progressLabel(win), at, "'Not known yet' should advance a required question");
+});
+
+test("not-known: is not chased as a gap, unlike a skip", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await wait(20);
+  byId(win, "q-unknown").click();   // INTAKE-001 -> not known
+  await wait(30);
+  await clickSkip(win);             // INTAKE-002 -> skipped
+  await wait(30);
+
+  // Finish the rest so the chat opens and reports its gap count.
+  for (let i = 0; i < 120; i++) {
+    if (byId(win, "screen-chat").classList.contains("active")) break;
+    const yn = win.document.querySelectorAll(".yn-btn");
+    if (yn.length) clickYn(win, "Yes"); else fillValid(win, "answer " + i);
+    await clickNext(win);
+  }
+  await wait(1400);
+  const opening = byId(win, "chat-body").textContent;
+  assert.match(opening, /1 required question/,
+    "only the skipped question should be an open gap -- the unknown one is settled");
+});
+
+test("not-known: typing a value clears it", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await wait(20);
+  byId(win, "q-unknown").click();
+  await wait(30);
+  // Back to the question we just marked.
+  byId(win, "q-back").click();
+  await wait(30);
+  assert.match(byId(win, "q-unknown").textContent, /Marked not known/);
+  fillText(win, "Meridian County Government");
+  await wait(10);
+  assert.match(byId(win, "q-unknown").textContent, /Not known yet/,
+    "entering a value should clear the not-known state");
+});
+
+test("not-known: travels in the saved record as its own map", async () => {
+  const calls = [];
+  const dom = await bootApp((win) => {
+    win.fetch = (url, opts) => {
+      calls.push({ method: (opts && opts.method) || "GET", url, body: opts && opts.body });
+      return Promise.resolve({
+        ok: true, status: 200,
+        json: () => Promise.resolve([]),
+        text: () => Promise.resolve("[]"),
+      });
+    };
+  });
+  const win = dom.window;
+  await wait(60);
+  byId(win, "btn-new-client").click();
+  await wait(20);
+  byId(win, "q-unknown").click();
+  await wait(80);
+
+  const put = calls.filter((c) => c.method === "PUT").pop();
+  assert.ok(put, "marking not-known should save");
+  const sent = JSON.parse(put.body);
+  assert.ok(sent.unknown && sent.unknown["INTAKE-001"] === true,
+    "the unknown map should carry the question");
+  assert.equal(sent.answers["INTAKE-001"], null, "and its value must be null");
+  win.close();
+});

@@ -357,6 +357,7 @@
         <button class="btn btn-ghost" id="q-back">Back</button>
         <div class="q-actions-right">
           <button class="btn btn-ghost" id="q-skip">Skip for now</button>
+          <button class="btn btn-ghost" id="q-unknown">Not known yet</button>
           <button class="btn btn-primary" id="q-next">Next</button>
         </div>
       </div>
@@ -884,9 +885,11 @@
     if (!currentClient.id) return; // nothing to save until "New Client" or "Open" has set an id
     var answers = {};
     var skipped = {};
+    var unknown = {};
     ALL_QUESTIONS.forEach(function (q) {
       answers[q.id] = q.answer;
       if (q.skipped) skipped[q.id] = true;
+      if (q.unknown) unknown[q.id] = true;
     });
     var nameAnswer = answers["INTAKE-001"];
     if (nameAnswer && nameAnswer.trim()) {
@@ -898,6 +901,7 @@
       companyName: currentClient.companyName || "Unnamed client",
       answers: answers,
       skipped: skipped,
+      unknown: unknown,
       createdAt: currentClient.createdAt || now,
       updatedAt: now
     };
@@ -962,7 +966,7 @@
 
   function startNewClient() {
     currentClient = { id: "client_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8), companyName: "", createdAt: null };
-    ALL_QUESTIONS.forEach(function (q) { q.answer = q.locked ? "Yes" : null; q.skipped = false; });
+    ALL_QUESTIONS.forEach(function (q) { q.answer = q.locked ? "Yes" : null; q.skipped = false; q.unknown = false; });
     qIndex = 0;
     updateClientContextChip();
     showScreen("questionnaire");
@@ -983,6 +987,7 @@
         var v = record.answers ? record.answers[q.id] : undefined;
         q.answer = (v !== undefined) ? v : (q.locked ? "Yes" : null);
         q.skipped = !!(record.skipped && record.skipped[q.id]);
+        q.unknown = !!(record.unknown && record.unknown[q.id]);
       });
       var active = getActiveQuestions();
       var firstGap = active.findIndex(isGap);
@@ -1111,6 +1116,9 @@
   function isTypedField(q) { return !!TYPE_RULES[q.type]; }
 
   function validateAnswer(q) {
+    // "Not known yet" is a deliberate answer, so it satisfies required.
+    // The point of the state is that a clear gap beats an invented value.
+    if (q.unknown) return null;
     if (q.type === "yn") {
       if (!q.required) return null;
       return q.answer === "Yes" || q.answer === "No" ? null : "Select Yes or No to continue.";
@@ -1149,10 +1157,18 @@
     skipBtn.style.display = q.locked ? "none" : "";
     skipBtn.textContent = q.skipped && isBlank(q) ? "Still skipped" : "Skip for now";
 
+    var unknownBtn = document.getElementById("q-unknown");
+    unknownBtn.style.display = q.locked ? "none" : "";
+    unknownBtn.textContent = q.unknown ? "Marked not known" : "Not known yet";
+
     var noteEl = document.getElementById("q-skip-note");
     noteEl.classList.remove("pending");
     if (q.locked) {
       noteEl.textContent = "";
+    } else if (q.unknown) {
+      // Deliberately not phrased as a warning: this is a valid outcome, and
+      // saying so stops a rep from feeling obliged to invent something.
+      noteEl.textContent = "Recorded as not yet known — this is a valid answer and won't be chased in AI Follow-Up.";
     } else if (q.skipped && isBlank(q)) {
       noteEl.textContent = "Skipped — the AI Follow-Up chat will circle back to this before you reach the summary.";
       noteEl.classList.add("pending");
@@ -1187,7 +1203,7 @@
         b.className = "yn-btn" + (q.answer === val ? " selected" : "");
         b.textContent = val;
         b.disabled = !!q.locked;
-        b.addEventListener("click", function () { q.answer = val; q.skipped = false; setFieldError(null, null); renderQuestion(); });
+        b.addEventListener("click", function () { q.answer = val; q.skipped = false; q.unknown = false; setFieldError(null, null); renderQuestion(); });
         row.appendChild(b);
       });
       area.appendChild(row);
@@ -1229,6 +1245,7 @@
         q.answer = ta.value;
         if (ta.value.trim()) {
           q.skipped = false;
+          q.unknown = false;
           refreshSkipUI(q);
         }
         setFieldError(null, null);
@@ -1299,7 +1316,27 @@
     var q = active[qIndex];
     if (q.locked) return; // shouldn't be reachable -- button is hidden for locked questions
     q.skipped = true;
+    q.unknown = false;    // choosing to come back is not the same as settling it
     setFieldError(null, null);
+    await advanceQuestionnaire();
+  }));
+
+  // "Not known yet" is a real answer, not an empty one. Some values simply
+  // are not knowable during a sales call, and recording that deliberately
+  // is more useful downstream than a blank -- which reads as "nobody got to
+  // it" -- or a guess, which is worse than either.
+  //
+  // Deliberately distinct from Skip: skipped questions are chased by the AI
+  // Follow-Up chat, unknown ones are not, because they have been settled.
+  document.getElementById("q-unknown").addEventListener("click", safe(async function () {
+    var active = getActiveQuestions();
+    var q = active[qIndex];
+    if (q.locked) return;
+    q.unknown = true;
+    q.skipped = false;
+    q.answer = null;      // a value and "not known" cannot both be true
+    setFieldError(null, null);
+    setQualityWarning(null);
     await advanceQuestionnaire();
   }));
 
