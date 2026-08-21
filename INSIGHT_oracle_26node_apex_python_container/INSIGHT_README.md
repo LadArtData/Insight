@@ -126,14 +126,24 @@ GET    /ords/admin/insight/clients
 GET    /ords/admin/insight/clients/:client_id
 PUT    /ords/admin/insight/clients/:client_id
 DELETE /ords/admin/insight/clients/:client_id
+GET    /ords/admin/insight/clients/:client_id/notes
+POST   /ords/admin/insight/clients/:client_id/notes
+PUT    /ords/admin/insight/clients/:client_id/notes
 ```
 
 `GET clients/:client_id` reassembles the normalized rows into the exact
-record shape the front end already uses — `{id, companyName, answers,
-skipped, createdAt, updatedAt}` — so wiring the app to it needs no change
-to its save/load call sites.
+record shape the front end already uses — `{id, companyName,
+primaryContact, answers, skipped, unknown, notes, createdAt, updatedAt}` —
+so wiring the app to it needs no change to its save/load call sites.
 
-`PUT` upserts the client and its answers. The front end saves the entire
+`PUT` upserts the client, its profile and its answers. Which fields it
+touches is decided by **which keys are present**, not by their values: a
+body carrying only `companyName`/`primaryContact` edits the profile and
+leaves every answer alone, and one carrying only `answers` leaves the
+profile alone. That distinction is what lets the client information sheet
+rename a company without replaying the answer set — which would compare
+all hundred of them and raise a change request for any that had drifted.
+Sending `""` is a deliberate clear; omitting the key is not. The front end saves the entire
 answer set on every save, while `pkg_insight_answers.record_answer` routes
 any change to an already-answered question through the approval workflow.
 Replaying every answer would therefore raise a PENDING change request per
@@ -147,6 +157,16 @@ The response reports what happened:
 
 `DELETE` archives (`status = 'ARCHIVED'`) rather than deleting, so answer
 history survives. `GET clients` lists only ACTIVE rows.
+
+The `notes` endpoints hold **additional information**: anything a client
+says that no question asked. They are deliberately not answers — no
+question id, no type, no option list, and no approval workflow, because
+notes are appended rather than overwritten and appending destroys nothing.
+Each carries the same `source` vocabulary as an answer (`SALES_INTAKE`,
+`AI_ASSIST`, `CONSULTANT`), so a note the assistant proposed is
+distinguishable from one a consultant typed. `PUT` takes `noteId` in the
+body and edits or archives that note; archiving keeps the row, matching how
+`DELETE` on a client keeps its answers. Requires `V20`.
 
 ### How the front end selects its store
 At startup the app probes `GET /clients` once and picks a backing store for
@@ -176,6 +196,12 @@ curl -s -X PUT "$ORDS/insight/clients/test-001" \
   -H 'Content-Type: application/json' \
   -d '{"companyName":"Test Co","answers":{"INTAKE-001":"Test Co"},"skipped":{}}'
 curl -s "$ORDS/insight/clients/test-001"
+curl -s -X PUT "$ORDS/insight/clients/test-001" \
+  -H 'Content-Type: application/json' \
+  -d '{"primaryContact":"R. Alvarez"}'          # profile only; answers untouched
+curl -s -X POST "$ORDS/insight/clients/test-001/notes" \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"Board meets quarterly."}'
 ```
 
 ## Running the matrix without APEX
@@ -239,6 +265,12 @@ sql/V10__questionnaire_documents.sql           -- insight_client_documents, insi
 sql/V11__questionnaire_client_sheet_view.sql   -- insight_client_sheet, insight_client_summary views
 sql/V12__questionnaire_seed_questions.sql      -- MERGE-seeds the 91 real questions into insight_questions
 sql/V13__seed_locked_question_answers.sql      -- trigger: seeds locked-question answers (e.g. QUAL-GL) on client creation
+sql/V14__insight_api_config.sql                -- insight_api_config: the api_key the ORDS handlers check
+sql/V15__widen_answer_types.sql                -- answer_type widened for the typed questions
+sql/V16__answer_provenance.sql                 -- answer_source, is_confirmed, is_unknown on insight_client_answers
+sql/V17-V18__record_answer_provenance*.sql     -- record_answer gains p_source/p_is_unknown; adds confirm_answer
+sql/V19__summary_counts_unknown.sql            -- insight_client_summary: "not known yet" counts as answered
+sql/V20__client_profile_and_notes.sql          -- insight_client_notes: additional information, kept apart from answers
 ```
 
 Design decisions, in short:
@@ -411,10 +443,11 @@ compile-checks the Python, and validates the compose file.
 
 ## Directory structure
 - `sql/`: `V1`-`V4` schema + package, `V5` seed data -- all Flyway-tracked,
-  target ITERIA_AI. `V7`-`V13` are the separate discovery-questionnaire
+  target ITERIA_AI. `V7`-`V20` are the separate discovery-questionnaire
   backend (schema, approval workflow, documents, consolidated views,
-  question seed data, locked-answer trigger) -- see "Discovery
-  questionnaire backend" above, also Flyway-tracked. `flyway.conf` holds
+  question seed data, locked-answer trigger, answer provenance, and client
+  notes) -- see "Discovery questionnaire backend" above, also
+  Flyway-tracked. `flyway.conf` holds
   the shared Flyway settings (see "Applying migrations" above).
   `INSIGHT_06_ords_module.sql` (ADMIN, ORDS metadata) and
   `INSIGHT_ADMIN_cleanup_old_objects.sql` are intentionally **not**

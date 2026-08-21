@@ -267,6 +267,56 @@
     font-size: 0.72rem; color: var(--ink-muted); background: rgba(255,255,255,0.03);
     border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin-top: 16px;
   }
+
+  /* ================= CLIENT INFORMATION SHEET =================
+     An overlay rather than a sixth screen: it is opened from the client
+     list to edit one client's details, and returning to that list is the
+     only way out. A screen would have to join the crumb order and the
+     per-client guard that goes with it, for a panel that is never part of
+     the questionnaire flow. */
+  .sheet {
+    display: none; position: fixed; inset: 0; z-index: 900;
+    background: rgba(4, 10, 20, 0.72); padding: 24px 16px; overflow-y: auto;
+  }
+  .sheet.show { display: block; }
+  .sheet-card {
+    width: 100%; max-width: 620px; margin: 0 auto; text-align: left;
+    background: var(--navy-card); border: 1px solid var(--line); border-radius: 16px;
+    padding: 24px 26px; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .sheet-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 20px; }
+  .sheet-title { font-size: 1.15rem; font-weight: 800; margin: 0; }
+  .sheet-sub { font-size: 0.78rem; color: var(--ink-muted); margin: 4px 0 0; }
+  .sheet-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-muted); margin: 16px 0 6px; }
+  .sheet-hint { font-size: 0.75rem; color: var(--ink-muted); margin: 0 0 10px; }
+  .sheet-input {
+    width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--line);
+    border-radius: 10px; padding: 11px 13px; color: var(--ink); font-size: 0.88rem;
+    font-family: inherit; box-sizing: border-box;
+  }
+  .sheet-input:focus { outline: none; border-color: var(--orange); }
+  textarea.sheet-input { resize: vertical; min-height: 74px; }
+  .sheet-actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+  .sheet-status { font-size: 0.75rem; color: var(--ink-muted); }
+  .sheet-status.ok { color: var(--orange-soft); }
+  .sheet-divider { height: 1px; background: var(--line); margin: 24px 0 0; }
+  .note-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+  .note-row {
+    background: rgba(255,255,255,0.03); border: 1px solid var(--line);
+    border-radius: 12px; padding: 12px 14px;
+  }
+  .note-text { font-size: 0.85rem; white-space: pre-wrap; word-break: break-word; }
+  .note-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 0.68rem; color: var(--ink-muted); }
+  .note-tag {
+    border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px;
+    font-weight: 700; letter-spacing: 0.03em;
+  }
+  /* A note the assistant proposed is marked, for the same reason an answer
+     records its source: a reader should not have to guess whether a person
+     said this or a model inferred it. */
+  .note-tag.ai { color: var(--orange-soft); border-color: var(--orange-soft); }
+  .note-actions { display: flex; gap: 6px; margin-left: auto; }
+  .note-empty { font-size: 0.8rem; color: var(--ink-muted); padding: 4px 0 12px; }
 </style>
 </head>
 <body>
@@ -281,6 +331,36 @@
   <button type="button" id="pending-approval-banner-close" aria-label="Dismiss">✕</button>
 </div>
 
+
+<div class="sheet" id="client-info" role="dialog" aria-modal="true" aria-labelledby="client-info-title">
+  <div class="sheet-card">
+    <div class="sheet-head">
+      <div>
+        <p class="sheet-title" id="client-info-title">Client Information</p>
+        <p class="sheet-sub" id="client-info-sub">Details and anything else worth recording</p>
+      </div>
+      <button type="button" class="icon-btn" id="client-info-close" aria-label="Close">✕</button>
+    </div>
+
+    <p class="sheet-label">Company name</p>
+    <input type="text" class="sheet-input" id="client-info-name" maxlength="300" placeholder="Legal or trading name">
+    <p class="sheet-label">Primary contact</p>
+    <input type="text" class="sheet-input" id="client-info-contact" maxlength="300" placeholder="Who to call">
+    <div class="sheet-actions">
+      <button type="button" class="btn btn-primary" id="client-info-save">Save details</button>
+      <span class="sheet-status" id="client-info-status"></span>
+    </div>
+
+    <div class="sheet-divider"></div>
+    <p class="sheet-label">Additional information</p>
+    <p class="sheet-hint">Anything the client told you that no question asked. Notes are added, never overwritten, and feed no configuration field — so they need no approval.</p>
+    <div class="note-list" id="client-info-notes"></div>
+    <textarea class="sheet-input" id="client-info-new-note" rows="3" maxlength="4000" placeholder="Add a note…"></textarea>
+    <div class="sheet-actions">
+      <button type="button" class="btn btn-ghost" id="client-info-add-note">Add note</button>
+    </div>
+  </div>
+</div>
 
 <div class="app" id="app">
   <div class="app-header">
@@ -535,6 +615,33 @@
         var id = clientIdFromKey(key);
         if (!id) return;
         await request("DELETE", "/clients/" + encodeURIComponent(id));
+      },
+
+      // ---- client information, beyond the key-value contract ----
+      // The three below are optional extras. Callers reach them through
+      // patchClientProfile/addClientNote/updateClientNote, which fall back
+      // to keeping the same data inside the record JSON when the active
+      // store doesn't implement them -- so the client information sheet has
+      // one contract to code against regardless of which store is live.
+      //
+      // patchClient exists because set() means "here is the whole record".
+      // Renaming a company through set() would mean resending every answer,
+      // and every one of them would be compared, and any that had drifted
+      // would raise a change request. A PUT carrying only the profile
+      // fields touches only those: the handler keys off which keys are
+      // present, not their values.
+      patchClient: async function (id, fields) {
+        return await request("PUT", "/clients/" + encodeURIComponent(id), JSON.stringify(fields));
+      },
+      addNote: async function (id, text, source) {
+        return await request("POST", "/clients/" + encodeURIComponent(id) + "/notes",
+          JSON.stringify({ text: text, source: source || "CONSULTANT" }));
+      },
+      updateNote: async function (id, noteId, fields) {
+        var body = { noteId: noteId };
+        if (fields.text !== undefined) body.text = fields.text;
+        if (fields.archived !== undefined) body.archived = fields.archived;
+        return await request("PUT", "/clients/" + encodeURIComponent(id) + "/notes", JSON.stringify(body));
       }
     };
   }
@@ -857,6 +964,56 @@
     await setClientIndex(list);
   }
 
+  // ---------------- Client information (profile + notes) ----------------
+  // The ORDS store implements these natively. Any other store -- in-memory,
+  // or one a host platform provided -- gets the same behaviour by keeping
+  // the data inside the record JSON, which is where a store with only
+  // get/set can hold it. Read-modify-write rather than set() alone, because
+  // set() replaces the whole record and would take the answers with it.
+  async function patchClientProfile(id, fields) {
+    if (window.storage.patchClient) return await window.storage.patchClient(id, fields);
+    var rec = (await getClientRecord(id)) || { id: id, answers: {}, skipped: {}, unknown: {} };
+    Object.keys(fields).forEach(function (k) { rec[k] = fields[k]; });
+    rec.updatedAt = new Date().toISOString();
+    await setClientRecord(rec);
+    return { ok: true };
+  }
+
+  // source is the seam the assistant will use: a note it proposes is added
+  // with "AI_ASSIST" and renders tagged, so nobody has to guess later
+  // whether a person wrote it. Same vocabulary as an answer's source.
+  async function addClientNote(id, text, source) {
+    if (window.storage.addNote) return await window.storage.addNote(id, text, source);
+    var rec = (await getClientRecord(id)) || { id: id, answers: {}, skipped: {}, unknown: {} };
+    rec.notes = rec.notes || [];
+    var now = new Date().toISOString();
+    rec.notes.unshift({
+      id: Date.now(), text: text, source: source || "CONSULTANT",
+      createdBy: "insight-app", createdAt: now, updatedAt: now
+    });
+    rec.updatedAt = now;
+    await setClientRecord(rec);
+    return { ok: true };
+  }
+
+  async function updateClientNote(id, noteId, fields) {
+    if (window.storage.updateNote) return await window.storage.updateNote(id, noteId, fields);
+    var rec = await getClientRecord(id);
+    if (!rec || !rec.notes) return { ok: false };
+    if (fields.archived) {
+      rec.notes = rec.notes.filter(function (n) { return String(n.id) !== String(noteId); });
+    } else {
+      rec.notes.forEach(function (n) {
+        if (String(n.id) !== String(noteId)) return;
+        if (fields.text !== undefined) n.text = fields.text;
+        n.updatedAt = new Date().toISOString();
+      });
+    }
+    rec.updatedAt = new Date().toISOString();
+    await setClientRecord(rec);
+    return { ok: true };
+  }
+
   // Progress is scored against only the questions that actually apply to
   // this client (required + in-scope module), not the full 91-question deck,
   // so a client with fewer in-scope modules can still reach 100%.
@@ -891,8 +1048,15 @@
       if (q.skipped) skipped[q.id] = true;
       if (q.unknown) unknown[q.id] = true;
     });
+    // INTAKE-001 seeds the client's label, but only while there isn't one.
+    // Once a name exists it is left alone, because the client information
+    // sheet can now set it deliberately and a derived value must not
+    // silently overwrite a typed one on the next Next click. Correcting
+    // INTAKE-001 later still updates the answer and the export; it just
+    // stops renaming the record.
     var nameAnswer = answers["INTAKE-001"];
-    if (nameAnswer && nameAnswer.trim()) {
+    var hasName = currentClient.companyName && currentClient.companyName !== "Unnamed client";
+    if (nameAnswer && nameAnswer.trim() && !hasName) {
       currentClient.companyName = nameAnswer.trim().split(",")[0].trim();
     }
     var now = new Date().toISOString();
@@ -1047,6 +1211,7 @@
         '</div>' +
         '<div class="client-progress-track"><div class="client-progress-fill" style="width:' + (c.percent || 0) + '%"></div></div>' +
         '<div class="client-actions">' +
+          '<button type="button" class="icon-btn" data-info="' + escapeHtml(c.id) + '" aria-label="Client information" title="Client information">☰</button>' +
           '<button type="button" class="icon-btn" data-open="' + escapeHtml(c.id) + '" aria-label="Open">↗</button>' +
           '<button type="button" class="icon-btn danger" data-delete="' + escapeHtml(c.id) + '" aria-label="Delete">🗑</button>' +
         '</div>';
@@ -1055,6 +1220,9 @@
     area.innerHTML = "";
     area.appendChild(wrap);
 
+    area.querySelectorAll("[data-info]").forEach(function (btn) {
+      btn.addEventListener("click", safe(function () { openClientInfo(btn.dataset.info); }));
+    });
     area.querySelectorAll("[data-open]").forEach(function (btn) {
       btn.addEventListener("click", safe(function () { openClient(btn.dataset.open); }));
     });
@@ -1070,6 +1238,181 @@
       }));
     });
   }
+
+  // ---------------- Client information sheet ----------------
+  // Two things the questionnaire cannot hold. The company's own details are
+  // a property of the engagement, not an answer to a discovery question --
+  // and the questionnaire's contact questions feed the Fusion handoff,
+  // which is a different job from "who do I call about this client".
+  // Additional information has nowhere else to go at all: without it,
+  // anything a client volunteers that no question asked either gets forced
+  // into whichever answer looks closest -- corrupting a field that feeds a
+  // setup value -- or is lost.
+  var infoSheet = document.getElementById("client-info");
+  var infoClientId = null;   // which client the sheet is currently showing
+
+  function setInfoStatus(message, ok) {
+    var el = document.getElementById("client-info-status");
+    el.textContent = message || "";
+    el.classList.toggle("ok", !!ok);
+  }
+
+  function renderNotes(notes) {
+    var wrap = document.getElementById("client-info-notes");
+    wrap.innerHTML = "";
+    if (!notes || !notes.length) {
+      wrap.innerHTML = '<div class="note-empty">Nothing recorded yet.</div>';
+      return;
+    }
+    notes.forEach(function (n) {
+      var row = document.createElement("div");
+      row.className = "note-row";
+      var when = n.createdAt ? new Date(n.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
+      var isAi = n.source === "AI_ASSIST";
+      row.innerHTML =
+        '<div class="note-text">' + escapeHtml(n.text || "") + '</div>' +
+        '<div class="note-meta">' +
+          '<span class="note-tag' + (isAi ? ' ai' : '') + '">' + escapeHtml(isAi ? "Assistant" : (n.source === "SALES_INTAKE" ? "Sales intake" : "Consultant")) + '</span>' +
+          '<span>' + escapeHtml(when) + '</span>' +
+          '<span class="note-actions">' +
+            '<button type="button" class="icon-btn" data-edit-note="' + escapeHtml(String(n.id)) + '" aria-label="Edit note" title="Edit">✎</button>' +
+            '<button type="button" class="icon-btn danger" data-archive-note="' + escapeHtml(String(n.id)) + '" aria-label="Remove note" title="Remove">🗑</button>' +
+          '</span>' +
+        '</div>';
+      wrap.appendChild(row);
+    });
+
+    wrap.querySelectorAll("[data-edit-note]").forEach(function (btn) {
+      btn.addEventListener("click", safe(function () {
+        var row = btn.closest(".note-row");
+        var textEl = row.querySelector(".note-text");
+        if (row.querySelector("textarea")) return;   // already editing
+        var box = document.createElement("textarea");
+        box.className = "sheet-input";
+        box.rows = 3;
+        box.maxLength = 4000;
+        box.value = textEl.textContent;
+        textEl.replaceWith(box);
+        box.focus();
+        var save = document.createElement("button");
+        save.type = "button";
+        save.className = "btn btn-ghost";
+        save.textContent = "Save note";
+        save.addEventListener("click", safe(async function () {
+          var text = box.value.trim();
+          // Empty is not an edit. Clearing a note to nothing is the same
+          // intent as removing it, and the API rejects it either way, so
+          // say which button does that instead of failing the save.
+          if (!text) { setInfoStatus("A note can't be empty — use the bin to remove it.", false); return; }
+          try {
+            await updateClientNote(infoClientId, btn.dataset.editNote, { text: text });
+            setInfoStatus("Note updated.", true);
+            await reloadInfoNotes();
+          } catch (err) {
+            setInfoStatus("Couldn't update that note: " + err.message, false);
+          }
+        }));
+        row.appendChild(save);
+      }));
+    });
+
+    wrap.querySelectorAll("[data-archive-note]").forEach(function (btn) {
+      btn.addEventListener("click", safe(async function () {
+        // Archived, not deleted -- the row stays in the database, matching
+        // how removing a client archives it. The confirm still says
+        // "remove", because that is what it means to the person clicking.
+        if (!confirm("Remove this note from the client's information?")) return;
+        try {
+          await updateClientNote(infoClientId, btn.dataset.archiveNote, { archived: true });
+          setInfoStatus("Note removed.", true);
+          await reloadInfoNotes();
+        } catch (err) {
+          setInfoStatus("Couldn't remove that note: " + err.message, false);
+        }
+      }));
+    });
+  }
+
+  async function reloadInfoNotes() {
+    var record = await getClientRecord(infoClientId);
+    renderNotes(record ? record.notes : []);
+  }
+
+  async function openClientInfo(id) {
+    infoClientId = id;
+    setInfoStatus("");
+    document.getElementById("client-info-new-note").value = "";
+    var record = await getClientRecord(id);
+    if (!record) {
+      showFatalError("Couldn't load that client's information — the record may have been deleted.");
+      return;
+    }
+    document.getElementById("client-info-sub").textContent =
+      record.companyName ? "Editing " + record.companyName : "Details and anything else worth recording";
+    document.getElementById("client-info-name").value = record.companyName === "Unnamed client" ? "" : (record.companyName || "");
+    document.getElementById("client-info-contact").value = record.primaryContact || "";
+    renderNotes(record.notes);
+    infoSheet.classList.add("show");
+    document.getElementById("client-info-name").focus();
+  }
+
+  function closeClientInfo() {
+    infoSheet.classList.remove("show");
+    infoClientId = null;
+  }
+
+  document.getElementById("client-info-close").addEventListener("click", safe(function () {
+    closeClientInfo();
+    renderRecordsScreen();   // the row may now show a different name
+  }));
+  infoSheet.addEventListener("click", function (e) {
+    if (e.target === infoSheet) { closeClientInfo(); renderRecordsScreen(); }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && infoSheet.classList.contains("show")) { closeClientInfo(); renderRecordsScreen(); }
+  });
+
+  document.getElementById("client-info-save").addEventListener("click", safe(async function () {
+    if (!infoClientId) return;
+    var name = document.getElementById("client-info-name").value.trim();
+    var contact = document.getElementById("client-info-contact").value.trim();
+    if (!name) { setInfoStatus("A company name is required.", false); return; }
+    try {
+      await patchClientProfile(infoClientId, { companyName: name, primaryContact: contact });
+      // The roster is derived server-side under ORDS, so setClientIndex is
+      // a no-op there; in-memory it is the only copy of the name, and
+      // leaving it stale would show the old one until reload.
+      var list = await getClientIndex();
+      var idx = list.findIndex(function (c) { return c.id === infoClientId; });
+      if (idx >= 0) {
+        list[idx].companyName = name;
+        list[idx].primaryContact = contact;
+        await setClientIndex(list);
+      }
+      if (currentClient.id === infoClientId) {
+        currentClient.companyName = name;
+        updateClientContextChip();
+      }
+      setInfoStatus("Details saved.", true);
+    } catch (err) {
+      setInfoStatus("Couldn't save those details: " + err.message, false);
+    }
+  }));
+
+  document.getElementById("client-info-add-note").addEventListener("click", safe(async function () {
+    if (!infoClientId) return;
+    var box = document.getElementById("client-info-new-note");
+    var text = box.value.trim();
+    if (!text) { setInfoStatus("Type something to add first.", false); return; }
+    try {
+      await addClientNote(infoClientId, text, "CONSULTANT");
+      box.value = "";
+      setInfoStatus("Note added.", true);
+      await reloadInfoNotes();
+    } catch (err) {
+      setInfoStatus("Couldn't add that note: " + err.message, false);
+    }
+  }));
 
   // ---------------- Typed answers ----------------
   // A question's type decides what the field accepts. Before these existed

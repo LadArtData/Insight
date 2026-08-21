@@ -535,6 +535,7 @@ test("storage: falls back to memory when the backend is unreachable", async () =
 // that behaves like the backend, not just an echo.
 function statefulFakeOrds() {
   const clients = new Map(); // id -> { companyName, answers, skipped, createdAt, updatedAt }
+  let nextNoteId = 1;
   function fetchImpl(url, opts) {
     const method = (opts && opts.method) || "GET";
     const path = String(url).replace("http://localhost", "").replace(API, "");
@@ -542,9 +543,46 @@ function statefulFakeOrds() {
 
     if (method === "GET" && path === "/clients") {
       const list = Array.from(clients.entries())
-        .map(([id, c]) => ({ id, companyName: c.companyName, updatedAt: c.updatedAt }));
+        .map(([id, c]) => ({ id, companyName: c.companyName, primaryContact: c.primaryContact, updatedAt: c.updatedAt }));
       return respond(200, list);
     }
+
+    // /clients/:id/notes -- mirrors the three handlers in
+    // sql/INSIGHT_06_ords_module.sql, including their archive-not-delete
+    // behaviour, so a test that passes here would pass against Oracle.
+    const notesMatch = path.match(/^\/clients\/([^/]+)\/notes$/);
+    if (notesMatch) {
+      const nid = decodeURIComponent(notesMatch[1]);
+      const client = clients.get(nid);
+      if (!client) return respond(404, { ok: false, error: "client not found" });
+      client.notes = client.notes || [];
+      if (method === "GET") {
+        return respond(200, client.notes.filter((x) => !x.archived));
+      }
+      if (method === "POST") {
+        const body = JSON.parse(opts.body);
+        if (!body.text) return respond(400, { ok: false, error: "note text is required" });
+        const note = {
+          id: nextNoteId++, text: body.text, source: body.source || "CONSULTANT",
+          createdBy: "insight-app", createdAt: now, updatedAt: now, archived: false,
+        };
+        client.notes.push(note);
+        client.updatedAt = now;
+        return respond(201, { ok: true, noteId: note.id });
+      }
+      if (method === "PUT") {
+        const body = JSON.parse(opts.body);
+        const note = client.notes.find((x) => String(x.id) === String(body.noteId));
+        if (!note) return respond(404, { ok: false, error: "note not found for this client" });
+        if (body.text !== undefined) note.text = body.text;
+        if (body.archived !== undefined) note.archived = !!body.archived;
+        note.updatedAt = now;
+        client.updatedAt = now;
+        return respond(200, { ok: true, noteId: note.id });
+      }
+      return respond(404, { ok: false, error: "no route" });
+    }
+
     const idMatch = path.match(/^\/clients\/([^/]+)$/);
     if (!idMatch) return respond(404, { ok: false, error: "no route" });
     const id = decodeURIComponent(idMatch[1]);
@@ -552,7 +590,9 @@ function statefulFakeOrds() {
     if (method === "GET") {
       const c = clients.get(id);
       if (!c) return respond(404, { ok: false, error: "client not found" });
-      return respond(200, { id, companyName: c.companyName, answers: c.answers, skipped: c.skipped, createdAt: c.createdAt, updatedAt: c.updatedAt });
+      return respond(200, { id, companyName: c.companyName, primaryContact: c.primaryContact,
+        notes: (c.notes || []).filter((x) => !x.archived),
+        answers: c.answers, skipped: c.skipped, createdAt: c.createdAt, updatedAt: c.updatedAt });
     }
     if (method === "PUT") {
       const body = JSON.parse(opts.body);
@@ -570,8 +610,15 @@ function statefulFakeOrds() {
           pendingApproval++; // matches record_answer: edit to an existing answer does not overwrite
         }
       });
+      // Presence decides, exactly as the handler does: a PUT carrying only
+      // profile fields must not blank the answers, and one carrying only
+      // answers must not blank the profile.
       clients.set(id, {
-        companyName: body.companyName || existing.companyName,
+        companyName: Object.prototype.hasOwnProperty.call(body, "companyName")
+          ? body.companyName : existing.companyName,
+        primaryContact: Object.prototype.hasOwnProperty.call(body, "primaryContact")
+          ? body.primaryContact : existing.primaryContact,
+        notes: existing.notes || [],
         answers, skipped: body.skipped || existing.skipped,
         createdAt: existing.createdAt, updatedAt: now,
       });
@@ -882,5 +929,258 @@ test("not-known: travels in the saved record as its own map", async () => {
   assert.ok(sent.unknown && sent.unknown["INTAKE-001"] === true,
     "the unknown map should carry the question");
   assert.equal(sent.answers["INTAKE-001"], null, "and its value must be null");
+  win.close();
+});
+
+// ---------------------------------------------------------------------------
+// Client information sheet: company basics and additional information.
+// ---------------------------------------------------------------------------
+async function openInfoSheet(win, id) {
+  byId(win, "nav-clients").click();
+  await wait(40);
+  const btn = byId(win, "records-list-area").querySelector(
+    id ? `[data-info="${id}"]` : "[data-info]");
+  assert.ok(btn, "the client row should offer a client-information button");
+  btn.click();
+  await wait(40);
+  return btn;
+}
+
+function seedClient(server, id, extra) {
+  server.clients.set(id, Object.assign({
+    companyName: "Meridian County", primaryContact: "R. Alvarez",
+    answers: { "INTAKE-001": "Meridian County Government" }, skipped: {}, notes: [],
+    createdAt: "2026-08-19T10:00:00Z", updatedAt: "2026-08-19T10:00:00Z",
+  }, extra || {}));
+}
+
+test("client info: the sheet opens populated with the saved name and contact", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-info");
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-info");
+
+  assert.ok(byId(win, "client-info").classList.contains("show"), "sheet should be visible");
+  assert.equal(byId(win, "client-info-name").value, "Meridian County");
+  assert.equal(byId(win, "client-info-contact").value, "R. Alvarez");
+  win.close();
+});
+
+test("client info: saving details sends only the profile fields, never the answers", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-info");
+  const calls = [];
+  const dom = await bootApp((win) => {
+    win.fetch = (url, opts) => {
+      calls.push({ method: (opts && opts.method) || "GET", url: String(url), body: opts && opts.body });
+      return server.fetchImpl(url, opts);
+    };
+  });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-info");
+
+  byId(win, "client-info-name").value = "Meridian County Water District";
+  byId(win, "client-info-contact").value = "D. Okafor";
+  byId(win, "client-info-save").click();
+  await wait(60);
+
+  const put = calls.filter((c) => c.method === "PUT" && c.url.endsWith("/clients/c-info")).pop();
+  assert.ok(put, "should PUT the client");
+  const sent = JSON.parse(put.body);
+  assert.equal(sent.companyName, "Meridian County Water District");
+  assert.equal(sent.primaryContact, "D. Okafor");
+  // The whole point of a profile-only PUT: resending answers would compare
+  // every one of them and raise change requests for any that had drifted.
+  assert.ok(!("answers" in sent), "a profile save must not carry the answer set");
+
+  const stored = server.clients.get("c-info");
+  assert.equal(stored.companyName, "Meridian County Water District");
+  assert.equal(stored.answers["INTAKE-001"], "Meridian County Government",
+    "answers must survive a profile-only save untouched");
+  assert.match(byId(win, "client-info-status").textContent, /saved/i);
+  win.close();
+});
+
+test("client info: an empty company name is rejected before any request", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-info");
+  const calls = [];
+  const dom = await bootApp((win) => {
+    win.fetch = (url, opts) => {
+      calls.push({ method: (opts && opts.method) || "GET", url: String(url) });
+      return server.fetchImpl(url, opts);
+    };
+  });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-info");
+
+  const before = calls.filter((c) => c.method === "PUT").length;
+  byId(win, "client-info-name").value = "   ";
+  byId(win, "client-info-save").click();
+  await wait(40);
+
+  assert.equal(calls.filter((c) => c.method === "PUT").length, before,
+    "nothing should be sent for an empty name");
+  assert.match(byId(win, "client-info-status").textContent, /required/i);
+  win.close();
+});
+
+test("client info: adding a note POSTs it and it renders in the list", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-info");
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-info");
+
+  assert.match(byId(win, "client-info-notes").textContent, /Nothing recorded yet/);
+  byId(win, "client-info-new-note").value = "Board meets quarterly; approvals wait on that cycle.";
+  byId(win, "client-info-add-note").click();
+  await wait(60);
+
+  const stored = server.clients.get("c-info");
+  assert.equal(stored.notes.length, 1);
+  assert.equal(stored.notes[0].source, "CONSULTANT", "a typed note is not attributed to the assistant");
+  assert.match(byId(win, "client-info-notes").textContent, /Board meets quarterly/);
+  assert.equal(byId(win, "client-info-new-note").value, "", "the box should clear after adding");
+  win.close();
+});
+
+test("client info: an empty note is refused", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-info");
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-info");
+
+  byId(win, "client-info-new-note").value = "   ";
+  byId(win, "client-info-add-note").click();
+  await wait(40);
+  assert.equal((server.clients.get("c-info").notes || []).length, 0);
+  win.close();
+});
+
+test("client info: removing a note archives the row rather than deleting it", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-info", {
+    notes: [{ id: 7, text: "Uses a shared services centre in Ohio.", source: "CONSULTANT",
+              createdAt: "2026-08-20T09:00:00Z", updatedAt: "2026-08-20T09:00:00Z", archived: false }],
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  win.confirm = () => true;
+  await openInfoSheet(win, "c-info");
+  assert.match(byId(win, "client-info-notes").textContent, /shared services centre/);
+
+  byId(win, "client-info-notes").querySelector("[data-archive-note]").click();
+  await wait(60);
+
+  const notes = server.clients.get("c-info").notes;
+  assert.equal(notes.length, 1, "the row is kept");
+  assert.equal(notes[0].archived, true, "and marked archived");
+  assert.match(byId(win, "client-info-notes").textContent, /Nothing recorded yet/);
+  win.close();
+});
+
+test("client info: editing a note sends the new text and keeps the same note", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-info", {
+    notes: [{ id: 9, text: "Fiscal year ends in June.", source: "CONSULTANT",
+              createdAt: "2026-08-20T09:00:00Z", updatedAt: "2026-08-20T09:00:00Z", archived: false }],
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-info");
+
+  byId(win, "client-info-notes").querySelector("[data-edit-note]").click();
+  await wait(20);
+  const box = byId(win, "client-info-notes").querySelector("textarea");
+  assert.ok(box, "editing should swap the note text for a box");
+  assert.equal(box.value, "Fiscal year ends in June.");
+  box.value = "Fiscal year ends in September.";
+  Array.from(byId(win, "client-info-notes").querySelectorAll("button"))
+    .find((b) => b.textContent === "Save note").click();
+  await wait(60);
+
+  const notes = server.clients.get("c-info").notes;
+  assert.equal(notes.length, 1, "editing must not create a second note");
+  assert.equal(notes[0].text, "Fiscal year ends in September.");
+  win.close();
+});
+
+test("client info: a note from the assistant is labelled as such", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-info", {
+    notes: [{ id: 11, text: "Migrating from EBS 12.2 next year.", source: "AI_ASSIST",
+              createdAt: "2026-08-20T09:00:00Z", updatedAt: "2026-08-20T09:00:00Z", archived: false }],
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-info");
+
+  const tag = byId(win, "client-info-notes").querySelector(".note-tag");
+  assert.equal(tag.textContent, "Assistant");
+  assert.ok(tag.classList.contains("ai"), "and is visually distinguished from a typed note");
+  win.close();
+});
+
+test("client info: works with no backend, keeping notes on the in-memory record", async () => {
+  const dom = await bootApp((win) => {
+    win.fetch = () => Promise.reject(new Error("offline"));
+  });
+  const win = dom.window;
+  await wait(60);
+  byId(win, "btn-new-client").click();
+  await wait(30);
+  fillText(win, "Harbor Freight Logistics, Harbor");
+  await clickNext(win);
+  await wait(40);
+
+  await openInfoSheet(win, null);
+  assert.ok(byId(win, "client-info").classList.contains("show"));
+  byId(win, "client-info-new-note").value = "No ERP in place; spreadsheets only.";
+  byId(win, "client-info-add-note").click();
+  await wait(40);
+  assert.match(byId(win, "client-info-notes").textContent, /spreadsheets only/,
+    "the memory store should hold notes on the record");
+  win.close();
+});
+
+test("client info: a name set in the sheet is not overwritten by INTAKE-001 on the next save", async () => {
+  const server = statefulFakeOrds();
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  byId(win, "btn-new-client").click();
+  await wait(30);
+  fillText(win, "Meridian County Government, Meridian");
+  await clickNext(win);
+  await wait(60);
+  const id = Array.from(server.clients.keys())[0];
+
+  await openInfoSheet(win, id);
+  byId(win, "client-info-name").value = "Meridian County Water District";
+  byId(win, "client-info-save").click();
+  await wait(60);
+  byId(win, "client-info-close").click();
+  await wait(40);
+
+  // Back into the questionnaire, answer another question, forcing a save.
+  byId(win, "records-list-area").querySelector(`[data-open="${id}"]`).click();
+  await wait(40);
+  fillValid(win, "R. Alvarez");
+  await clickNext(win);
+  await wait(60);
+
+  assert.equal(server.clients.get(id).companyName, "Meridian County Water District",
+    "the deliberately set name must survive a questionnaire save");
   win.close();
 });
