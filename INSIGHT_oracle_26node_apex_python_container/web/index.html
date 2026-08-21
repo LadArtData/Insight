@@ -1788,15 +1788,41 @@
     input.value = "";
     // Persist this chat answer onto the actual question object (same
     // reference held in ALL_QUESTIONS) so it isn't lost — just displayed.
-    if (chatStep < chatGaps.length) {
-      var gapQ = chatGaps[chatStep];
-      if (gapQ.type === "yn") {
-        gapQ.answer = /^y/i.test(val) ? "Yes" : (/^n/i.test(val) ? "No" : val);
-      } else {
-        gapQ.answer = val;
-      }
-      gapQ.skipped = false; // filled in here -- no longer an open gap
+    var gapQ = chatGaps[chatStep];
+    var previousAnswer = gapQ.answer;
+    var previousUnknown = gapQ.unknown;
+    if (gapQ.type === "yn") {
+      gapQ.answer = /^y/i.test(val) ? "Yes" : (/^n/i.test(val) ? "No" : val);
+    } else {
+      gapQ.answer = val;
     }
+    gapQ.skipped = false;  // filled in here -- no longer an open gap
+    gapQ.unknown = false;  // and no longer unanswerable, since it was just answered
+
+    // The same format rules the questionnaire applies. Without this the
+    // chat was the way around them: "How many legal entities?" would take
+    // "quite a few" here and store it against a numeric question, which is
+    // exactly what typing the questions was meant to prevent. Re-ask
+    // instead of advancing, and put the question's own guidance in the
+    // reply so the correction is actionable.
+    var problem = validateAnswer(gapQ);
+    if (problem) {
+      gapQ.answer = previousAnswer;
+      gapQ.unknown = previousUnknown;
+      var typingRetry = addTyping();
+      setTimeout(function () {
+        typingRetry.remove();
+        addMessage("ai", problem + " " + gapQ.text);
+      }, 400);
+      return;
+    }
+
+    // Saved per answer, not only when the chat ends. The questionnaire
+    // saves on every Next; the chat used to save once, at the end, so
+    // leaving partway through -- or closing the tab -- lost everything
+    // typed here.
+    saveClientProgress().catch(function () {});
+
     chatStep += 1;
     var typing = addTyping();
     setTimeout(function () {

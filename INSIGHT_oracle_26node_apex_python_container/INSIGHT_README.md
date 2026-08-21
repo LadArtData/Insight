@@ -136,6 +136,14 @@ record shape the front end already uses — `{id, companyName,
 primaryContact, answers, skipped, unknown, notes, createdAt, updatedAt}` —
 so wiring the app to it needs no change to its save/load call sites.
 
+An edit to an answer **that has a value** routes through the approval
+workflow rather than overwriting. Filling a blank does not: a question that
+was skipped or marked "not known yet" has a row but no value, so the first
+real answer to it is ordinary intake and applies directly. Before `V21` the
+gate keyed off the row rather than the value, which meant every answer given
+in the AI Follow-Up chat -- whose entire job is filling gaps -- went to the
+approval queue and never reached the record.
+
 `PUT` upserts the client, its profile and its answers. Which fields it
 touches is decided by **which keys are present**, not by their values: a
 body carrying only `companyName`/`primaryContact` edits the profile and
@@ -271,6 +279,7 @@ sql/V16__answer_provenance.sql                 -- answer_source, is_confirmed, i
 sql/V17-V18__record_answer_provenance*.sql     -- record_answer gains p_source/p_is_unknown; adds confirm_answer
 sql/V19__summary_counts_unknown.sql            -- insight_client_summary: "not known yet" counts as answered
 sql/V20__client_profile_and_notes.sql          -- insight_client_notes: additional information, kept apart from answers
+sql/V21__fill_blank_answers_without_approval.sql -- filling a blank is not an edit; repairs the answers that gated
 ```
 
 Design decisions, in short:
@@ -445,9 +454,9 @@ compile-checks the Python, and validates the compose file.
 - `sql/`: `V1`-`V4` schema + package, `V5` seed data -- all Flyway-tracked,
   target ITERIA_AI. `V7`-`V20` are the separate discovery-questionnaire
   backend (schema, approval workflow, documents, consolidated views,
-  question seed data, locked-answer trigger, answer provenance, and client
-  notes) -- see "Discovery questionnaire backend" above, also
-  Flyway-tracked. `flyway.conf` holds
+  question seed data, locked-answer trigger, answer provenance, client
+  notes, and the blank-fill fix) -- see "Discovery questionnaire backend"
+  above, also Flyway-tracked. `flyway.conf` holds
   the shared Flyway settings (see "Applying migrations" above).
   `INSIGHT_06_ords_module.sql` (ADMIN, ORDS metadata) and
   `INSIGHT_ADMIN_cleanup_old_objects.sql` are intentionally **not**

@@ -1184,3 +1184,129 @@ test("client info: a name set in the sheet is not overwritten by INTAKE-001 on t
     "the deliberately set name must survive a questionnaire save");
   win.close();
 });
+
+// ---------------------------------------------------------------------------
+// AI Follow-Up chat: answers have to reach the record, and have to obey the
+// same format rules the questionnaire enforces.
+// ---------------------------------------------------------------------------
+
+// Walks Phase 1, skipping the first question whose field is numeric, so the
+// chat later has exactly one gap and that gap is a typed one.
+async function fillIntakeSkippingNumeric(win) {
+  let skipped = false;
+  for (let i = 0; i < INTAKE_COUNT; i++) {
+    const el = win.document.querySelector(".q-input");
+    if (!skipped && el && el.getAttribute("inputmode") === "numeric") {
+      skipped = true;
+      await clickSkip(win);
+      continue;
+    }
+    fillValid(win, "answer " + i);
+    await clickNext(win);
+  }
+  assert.ok(skipped, "expected at least one numeric question in intake");
+}
+
+test("chat: each answer is saved as it is given, not only when the chat ends", async () => {
+  const server = statefulFakeOrds();
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  byId(win, "btn-new-client").click();
+  await fillIntake(win);
+  await answerQualifiers(win);
+  await clickSkip(win);                  // one gap: the first GL question
+  await finishRemainingQuestions(win);
+  await wait(1300);
+  assert.ok(byId(win, "screen-chat").classList.contains("active"));
+
+  const id = Array.from(server.clients.keys())[0];
+  byId(win, "chat-input").value = "Two ledgers, both in USD.";
+  byId(win, "chat-send").click();
+  await wait(200);   // deliberately shorter than the 600ms typing delay:
+                     // the save must not wait for the chat to finish
+
+  const stored = server.clients.get(id).answers;
+  const landed = Object.keys(stored).some((k) => stored[k] === "Two ledgers, both in USD.");
+  assert.ok(landed, "the chat answer should already be in the record");
+  win.close();
+});
+
+test("chat: a gap answer lands as a real answer, not a pending change request", async () => {
+  const server = statefulFakeOrds();
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  byId(win, "btn-new-client").click();
+  await fillIntake(win);
+  await answerQualifiers(win);
+  await clickSkip(win);
+  await finishRemainingQuestions(win);
+  await wait(1300);
+
+  const id = Array.from(server.clients.keys())[0];
+  const before = server.clients.get(id).answers;
+  const gapId = Object.keys(before).find((k) => before[k] === null || before[k] === undefined || before[k] === "");
+
+  byId(win, "chat-input").value = "Filled in during follow-up.";
+  byId(win, "chat-send").click();
+  await wait(300);
+
+  // Skipping stores a row with no value. The record must now hold the value
+  // itself -- the failure this guards against is the answer going to the
+  // approval queue instead, where it is not an answer at all.
+  const after = server.clients.get(id).answers;
+  assert.equal(after[gapId], "Filled in during follow-up.",
+    "filling a blank answer must apply directly, not queue for approval");
+  win.close();
+});
+
+test("chat: an answer that breaks the question's format is refused and re-asked", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await fillIntakeSkippingNumeric(win);
+  await answerQualifiers(win);
+  await finishRemainingQuestions(win);
+  await wait(1300);
+  assert.ok(byId(win, "screen-chat").classList.contains("active"));
+
+  byId(win, "chat-input").value = "quite a few";
+  byId(win, "chat-send").click();
+  await wait(700);
+
+  const body = byId(win, "chat-body").textContent;
+  assert.match(body, /digits only/, "the reply should carry the question's own format guidance");
+  assert.doesNotMatch(body, /covers the required gaps/,
+    "and must not treat the gap as filled");
+
+  // The same question, answered properly, advances.
+  byId(win, "chat-input").value = "14";
+  byId(win, "chat-send").click();
+  await wait(900);
+  assert.match(byId(win, "chat-body").textContent, /covers the required gaps/);
+  win.close();
+});
+
+test("chat: a yes/no gap still accepts a conversational yes", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await fillIntake(win);
+  // Skip QUAL-AP rather than answering it, making a yn question the gap.
+  await clickNext(win);          // QUAL-GL, locked
+  await clickSkip(win);          // QUAL-AP skipped
+  clickYn(win, "No"); await clickNext(win);   // AR
+  clickYn(win, "No"); await clickNext(win);   // FA
+  clickYn(win, "No"); await clickNext(win);   // CM
+  clickYn(win, "No"); await clickNext(win);   // MULTI
+  await finishRemainingQuestions(win);
+  await wait(1300);
+
+  byId(win, "chat-input").value = "yes, they do";
+  byId(win, "chat-send").click();
+  await wait(900);
+  assert.match(byId(win, "chat-body").textContent, /covers the required gaps|still blank/,
+    "a conversational yes should be accepted, not bounced");
+  win.close();
+});
