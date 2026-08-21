@@ -13,6 +13,7 @@ Run: python -m unittest test_INSIGHT_chat_proxy -v
 """
 
 import json
+import os
 import unittest
 from unittest import mock
 
@@ -156,3 +157,30 @@ class RequireEnvTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ModelDefaultsTests(unittest.TestCase):
+    """The model and compartment are baked in, so the service runs unconfigured."""
+
+    def test_model_and_compartment_default_without_env(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(
+                proxy.require_env("OCI_GENAI_MODEL_ID", proxy.DEFAULT_MODEL_ID)
+                .startswith("ocid1.generativeaimodel.oc1.us-chicago-1.")
+            )
+            self.assertTrue(
+                proxy.require_env("OCI_COMPARTMENT_ID", proxy.DEFAULT_COMPARTMENT_ID)
+                .startswith("ocid1.tenancy.oc1..")
+            )
+
+    def test_env_overrides_the_baked_in_default(self):
+        with mock.patch.dict(os.environ, {"OCI_GENAI_MODEL_ID": "ocid1.other"}, clear=True):
+            self.assertEqual(
+                proxy.require_env("OCI_GENAI_MODEL_ID", proxy.DEFAULT_MODEL_ID),
+                "ocid1.other",
+            )
+
+    def test_still_raises_when_no_value_and_no_default(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(RuntimeError):
+                proxy.require_env("OCI_SOMETHING_UNSET")

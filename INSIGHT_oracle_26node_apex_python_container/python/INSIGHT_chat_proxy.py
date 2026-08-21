@@ -24,7 +24,9 @@ Configuration (env vars, matching this project's docker/.env convention):
   OCI_CONFIG_PROFILE       Profile name in ~/.oci/config (default: DEFAULT)
   OCI_CONFIG_FILE          Path to the config file (default: ~/.oci/config)
   OCI_COMPARTMENT_ID       Compartment OCID with Generative AI access
-  OCI_GENAI_MODEL_ID       Model OCID (OnDemandServingMode)
+                            (defaults to the project tenancy below)
+  OCI_GENAI_MODEL_ID       Model OCID for OnDemandServingMode (defaults to
+                            the model below)
   OCI_GENAI_ENDPOINT       Inference endpoint (default: the us-chicago-1
                             endpoint from the sample -- override if your
                             model lives in a different region)
@@ -44,6 +46,24 @@ import sys
 from flask import Flask, jsonify, request
 
 DEFAULT_ENDPOINT = "https://inference.generativeai.us-chicago-1.oci.oraclecloud.com"
+
+# The model and compartment this project targets, taken from the OCI
+# Generative AI ChatExample supplied for INSIGHT. Neither is a credential --
+# an OCID names a resource, and reaching it still requires OCI auth and a
+# policy granting Generative AI access -- so they are safe to keep here, and
+# baking them in means the service needs no configuration to run.
+#
+# Served through GenericChatRequest rather than CohereChatRequest, which is
+# how OCI exposes the non-Cohere families (Llama and similar). If the model
+# is ever switched to a Cohere one, the request class has to change too --
+# they are not interchangeable.
+DEFAULT_MODEL_ID = (
+    "ocid1.generativeaimodel.oc1.us-chicago-1."
+    "amaaaaaask7dceyayjawvuonfkw2ua4bob4rlnnlhs522pafbglivtwlfzta"
+)
+DEFAULT_COMPARTMENT_ID = (
+    "ocid1.tenancy.oc1..aaaaaaaatznhqzbky6jdvflzkfvedppvrxbw4weyi2japj37aoagj6kcbfoa"
+)
 
 app = Flask(__name__)
 
@@ -65,8 +85,13 @@ def env(name, default=None, required=False):
     return val
 
 
-def require_env(name):
-    val = os.environ.get(name)
+def require_env(name, default=None):
+    """
+    Per-request config lookup. Raises rather than sys.exit()ing so a missing
+    value fails one request instead of the process -- see env() above.
+    A default makes the value optional: the caller has a sensible built-in.
+    """
+    val = os.environ.get(name) or default
     if not val:
         raise RuntimeError(f"Missing required environment variable: {name}")
     return val
@@ -176,7 +201,14 @@ def call_llm(gap_context, user_message):
         )
     ]
     chat_request.max_tokens = 600
-    chat_request.temperature = 0.2  # low -- this is a structured-extraction task, not creative writing
+    # The supplied ChatExample uses temperature 1.0. Deliberately lower here:
+    # that sample is a free-form text demo, whereas every call this service
+    # makes is structured extraction -- read an answer, decide which question
+    # it belongs to, return JSON. High temperature on that job produces
+    # inconsistent field mapping between otherwise identical inputs, which is
+    # the one failure mode a handoff format cannot tolerate. Every other
+    # generation parameter matches the sample exactly.
+    chat_request.temperature = 0.2
     chat_request.frequency_penalty = 0
     chat_request.presence_penalty = 0
     chat_request.top_p = 0.75
@@ -184,9 +216,9 @@ def call_llm(gap_context, user_message):
 
     chat_detail = oci.generative_ai_inference.models.ChatDetails()
     chat_detail.serving_mode = oci.generative_ai_inference.models.OnDemandServingMode(
-        model_id=require_env("OCI_GENAI_MODEL_ID")
+        model_id=require_env("OCI_GENAI_MODEL_ID", DEFAULT_MODEL_ID)
     )
-    chat_detail.compartment_id = require_env("OCI_COMPARTMENT_ID")
+    chat_detail.compartment_id = require_env("OCI_COMPARTMENT_ID", DEFAULT_COMPARTMENT_ID)
     chat_detail.chat_request = chat_request
 
     response = client.chat(chat_detail)
