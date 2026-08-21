@@ -42,6 +42,26 @@ jobs:
       - name: Compile-check Python ingestion script
         run: python -m py_compile INSIGHT_oracle_26node_apex_python_container/python/INSIGHT_oracle_doc_ingestion.py
 
+      - name: Compile-check container entrypoint
+        run: python -m py_compile INSIGHT_oracle_26node_apex_python_container/docker-entrypoint.py
+
+      # Only flask: the suite stubs the OCI client, so installing the full
+      # SDK here would add a minute to every run to test nothing extra.
+      - name: Chat proxy test suite
+        working-directory: INSIGHT_oracle_26node_apex_python_container/python
+        run: |
+          pip install flask
+          python -m unittest test_INSIGHT_chat_proxy
+
+      # The /api/chat upstream port is written in two places that must
+      # agree -- the nginx template and the entrypoint's constant. A
+      # mismatch is a silent 502 that nothing else would catch.
+      - name: Verify the chat proxy port matches in nginx and the entrypoint
+        working-directory: INSIGHT_oracle_26node_apex_python_container
+        run: |
+          grep -q 'proxy_pass http://127.0.0.1:5001/chat;' web/nginx.combined.conf.template
+          grep -q 'CHAT_PROXY_PORT = "5001"' docker-entrypoint.py
+
       - name: Validate docker-compose config
         working-directory: INSIGHT_oracle_26node_apex_python_container/docker
         run: |

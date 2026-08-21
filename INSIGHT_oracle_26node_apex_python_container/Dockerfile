@@ -46,6 +46,14 @@ COPY python/INSIGHT_requirements.txt .
 RUN pip install --no-cache-dir -r INSIGHT_requirements.txt
 COPY python/INSIGHT_oracle_doc_ingestion.py .
 
+# --- AI assistant proxy, started alongside nginx by the entrypoint ---
+# Runs in-container on 127.0.0.1:5001 and is never exposed directly: nginx
+# proxies /api/chat to it. That keeps OCI credentials server-side, the same
+# reason the ORDS api_key is attached by nginx rather than the browser.
+COPY python/INSIGHT_chat_proxy_requirements.txt .
+RUN pip install --no-cache-dir -r INSIGHT_chat_proxy_requirements.txt
+COPY python/INSIGHT_chat_proxy.py .
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \

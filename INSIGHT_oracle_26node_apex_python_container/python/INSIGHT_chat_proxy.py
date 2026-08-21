@@ -21,6 +21,11 @@ verified without a live SDK install and real credentials (neither
 available in the environment this was written in).
 
 Configuration (env vars, matching this project's docker/.env convention):
+  OCI_AUTH_METHOD          auto (default) | config_file | instance_principal.
+                            auto uses ~/.oci/config when present, otherwise
+                            instance principals -- so the same file works on
+                            a laptop and inside the OCI container with no
+                            change.
   OCI_CONFIG_PROFILE       Profile name in ~/.oci/config (default: DEFAULT)
   OCI_CONFIG_FILE          Path to the config file (default: ~/.oci/config)
   OCI_COMPARTMENT_ID       Compartment OCID with Generative AI access
@@ -30,6 +35,10 @@ Configuration (env vars, matching this project's docker/.env convention):
   OCI_GENAI_ENDPOINT       Inference endpoint (default: the us-chicago-1
                             endpoint from the sample -- override if your
                             model lives in a different region)
+  CHAT_PROXY_HOST          Interface to bind (default: 127.0.0.1 --
+                            loopback only, because in the deployed container
+                            nginx is the only thing that should reach this;
+                            set 0.0.0.0 to run it as a standalone service)
   CHAT_PROXY_PORT          Port to listen on (default: 5001)
 
 Run directly:
@@ -110,14 +119,43 @@ def get_oci_client():
 
     import oci  # local import -- see docstring above
 
+    endpoint = env("OCI_GENAI_ENDPOINT", DEFAULT_ENDPOINT)
+    mode = env("OCI_AUTH_METHOD", "auto").lower()
+
+    # Two ways in, because the two places this runs cannot share one.
+    #
+    #   config file        a developer laptop, where ~/.oci/config exists.
+    #                      This is what the Java sample uses.
+    #   instance principal a Container Instance, which has no home
+    #                      directory to mount a key into. OCI hands the
+    #                      container an identity directly, so no secret is
+    #                      stored or shipped anywhere.
+    #
+    # "auto" prefers the config file when one is present and falls back to
+    # instance principals, so the same image runs in both places untouched.
+    # Instance principals additionally require a dynamic group matching the
+    # container and a policy granting it use of generative-ai-family.
     config_file = env("OCI_CONFIG_FILE", os.path.expanduser("~/.oci/config"))
     profile = env("OCI_CONFIG_PROFILE", "DEFAULT")
-    config = oci.config.from_file(file_location=config_file, profile_name=profile)
+    use_config_file = mode == "config_file" or (mode == "auto" and os.path.exists(config_file))
 
-    endpoint = env("OCI_GENAI_ENDPOINT", DEFAULT_ENDPOINT)
+    if use_config_file:
+        config = oci.config.from_file(file_location=config_file, profile_name=profile)
+        signer = None
+        auth_used = "config_file"
+    else:
+        signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+        config = {}
+        auth_used = "instance_principal"
+
+    client_kwargs = {"service_endpoint": endpoint}
+    if signer is not None:
+        client_kwargs["signer"] = signer
+
+    print(f"[chat-proxy] OCI auth: {auth_used}", flush=True)
     _client = oci.generative_ai_inference.GenerativeAiInferenceClient(
         config,
-        service_endpoint=endpoint,
+        **client_kwargs,
         # Matches the Java sample's 240s read timeout / no-retry config --
         # generative model calls are slow and a mid-call retry would
         # double-charge/double-generate rather than help.
@@ -266,5 +304,30 @@ def chat():
 
 
 if __name__ == "__main__":
+    # Loopback by default. In the deployed container only nginx talks to
+    # this service, and binding every interface would expose an unauthenticated
+    # endpoint that spends money on model calls to anything that can route to
+    # the container.
+    host = env("CHAT_PROXY_HOST", "127.0.0.1")
     port = int(env("CHAT_PROXY_PORT", "5001"))
-    app.run(host="0.0.0.0", port=port)
+
+    # Flask's built-in server is single-threaded and explicitly not for
+    # production; a second request would queue behind a model call that can
+    # take tens of seconds. waitress is a pure-Python WSGI server, so it adds
+    # a dependency but no build toolchain. Fall back only so the file still
+    # runs for local poking without the full requirements installed.
+    try:
+        from waitress import serve
+    except ImportError:
+        print(
+            "[chat-proxy] waitress not installed; using Flask's development "
+            "server. Do not run this way in a deployment.",
+            file=sys.stderr,
+            flush=True,
+        )
+        app.run(host=host, port=port)
+    else:
+        print(f"[chat-proxy] listening on {host}:{port}", flush=True)
+        # Model calls are slow and mostly waiting on the network, so threads
+        # rather than the default 4 keeps a queue from forming.
+        serve(app, host=host, port=port, threads=8)

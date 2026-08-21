@@ -67,6 +67,25 @@ server {
         access_log off;
     }
 
+    # ---- AI assistant --------------------------------------------------
+    # The chat proxy runs inside this container on 127.0.0.1:5001, holding
+    # the OCI credentials so the browser never does -- same reasoning as the
+    # ORDS api_key above.
+    #
+    # A literal address, not a hostname, on purpose: nginx resolves hostname
+    # upstreams at config-parse time and refuses to start if one does not
+    # resolve. That killed this container once already. With 127.0.0.1 a
+    # proxy that failed to start is a 502 on /api/chat while the rest of the
+    # site keeps serving.
+    location /api/chat {
+        proxy_pass http://127.0.0.1:5001/chat;
+        proxy_set_header Host $host;
+        # Generative calls are slow; matches the 240s read timeout the OCI
+        # sample uses. Anything shorter cuts off legitimate responses.
+        proxy_read_timeout 240s;
+        client_max_body_size 32k;
+    }
+
     location / {
         try_files $uri $uri/ =404;
     }

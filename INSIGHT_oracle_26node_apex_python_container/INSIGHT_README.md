@@ -349,6 +349,35 @@ that instance's Security List/NSG (separate from 1521's rule) or the page
 won't load from outside. `web/index.html` is a plain copy, not a symlink --
 if you edit the app UI, copy the updated file into `web/index.html` too.
 
+## AI assistant endpoint (`/api/chat`)
+The combined image runs a second process alongside nginx:
+`python/INSIGHT_chat_proxy.py`, a small service in front of OCI Generative
+AI. It binds `127.0.0.1:5001` and is reachable only through nginx's
+`/api/chat` location — the browser never holds OCI credentials, the same
+reason the ORDS `api_key` is attached server-side.
+
+The entrypoint supervises it: if it exits it is restarted with backoff, and
+if it cannot start at all the site still serves and `/api/chat` returns
+502. Set `CHAT_PROXY_DISABLE=1` to skip it entirely.
+
+Authentication is chosen at startup (`OCI_AUTH_METHOD`, default `auto`):
+a `~/.oci/config` when one exists, otherwise **instance principals**, which
+is what the Container Instance uses since it has no config file to mount.
+That requires two things in OCI, neither of which lives in this repo:
+
+1. A dynamic group matching the Container Instance, e.g.
+   `ALL {resource.type='computecontainerinstance', resource.compartment.id='<ocid>'}`
+2. A policy granting it access:
+   `allow dynamic-group <name> to use generative-ai-family in tenancy`
+
+Without them the proxy starts, `/health` passes, and `/chat` returns 502 —
+check the container log for the `[chat-proxy] OCI auth:` line to see which
+method it chose.
+
+Under `docker compose` the proxy runs as its own container instead
+(`python/Dockerfile.chat-proxy`, which sets `CHAT_PROXY_HOST=0.0.0.0` so the
+nginx container can reach it) with the host's `~/.oci` mounted read-only.
+
 ## CI: publishing images
 `.github/workflows/build.yml` builds and pushes to OCIR. It has three
 targets, selectable on a manual run (Actions → Run workflow):
