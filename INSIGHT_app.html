@@ -790,13 +790,96 @@
   // unlikely to be a *complete* answer to something like "what ERP does
   // the client use, and are they still under contract?"
   function looksLikeLowQualityAnswer(text) {
+    return classifyAnswerLocally(text) !== "ok";
+  }
+
+  // Three outcomes, not two, because "block everything suspicious" and
+  // "warn about everything" are both wrong. Some text cannot be a good-faith
+  // answer from anyone and should simply be refused; some is merely thin,
+  // and the person looking at the client knows better than a regex whether
+  // it is enough.
+  //
+  //   nonsense  refused outright -- Skip and "Not known yet" remain open, so
+  //             nobody is ever stuck with nothing they can do
+  //   thin      warned once, second click proceeds
+  //   ok        saved
+  //
+  // This is the local check. When the reviewer endpoint answers, its verdict
+  // wins; this is what runs when the reviewer is unreachable, which must
+  // never mean "anything goes".
+  function classifyAnswerLocally(text) {
     var t = (text || "").trim();
-    if (t.length < 4) return false; // too short to judge -- also usually optional/N-A-type answers
-    if (/[\[\]{}<>\\|`~^]/.test(t)) return true; // stray characters unlikely in prose
-    if (/(.)\1{3,}/.test(t)) return true; // same character 4+ times in a row (key-mashing)
+    if (!t) return "ok";                              // blank is the validator's business, not this one
+    if (/[\[\]{}<>\\|`~^]/.test(t)) return "nonsense"; // stray characters, not prose
+    if (/(.)\1{3,}/.test(t)) return "nonsense";        // same character four times over -- key-mashing
+
     var words = t.split(/\s+/).filter(Boolean);
-    if (words.length === 1 && t.length >= 8) return true; // one long unbroken token, not a sentence
-    return false;
+    var letters = t.replace(/[^A-Za-z]/g, "");
+
+    // A run of four consonants inside one word is close to impossible in
+    // English outside of abbreviations, which are short. "dgashnf" fails
+    // this; "strength" would too, so it only counts on longer tokens where
+    // a real word would have broken the run by now.
+    var consonantRun = words.some(function (w) {
+      var bare = w.replace(/[^A-Za-z]/g, "");
+      return bare.length >= 6 && /[bcdfghjklmnpqrstvwxyz]{4,}/i.test(bare);
+    });
+    if (consonantRun) return "nonsense";
+
+    // Almost no vowels across the whole answer is the same signal, caught
+    // where it is spread across several short tokens instead of one long one.
+    if (letters.length >= 6 && (letters.match(/[aeiouAEIOU]/g) || []).length / letters.length < 0.2) {
+      return "nonsense";
+    }
+
+    if (t.length < 4) return "ok";                     // too short to judge fairly
+    if (words.length === 1 && t.length >= 8) return "thin"; // one long unbroken token
+    // Two words and barely any of them. "d gsa" lands here, and so does a
+    // terse but real answer like "SAP ECC" -- which is exactly why this
+    // warns rather than refuses.
+    if (words.length <= 2 && t.length < 12) return "thin";
+    return "ok";
+  }
+
+  // Asks the server-side reviewer whether an answer actually answers the
+  // question. A regex can tell that "asdfgh" is not an answer; it cannot
+  // tell that "Who cares!" is not an answer about Tax IDs.
+  //
+  // Never blocks on its own unavailability. If the endpoint is missing,
+  // erroring, or slow, this returns null and the caller falls back to the
+  // local check -- an outage in a quality check must not become an outage
+  // in the questionnaire.
+  var REVIEW_TIMEOUT_MS = 8000;
+  var reviewerAvailable = true;   // set false after the first failure
+
+  async function reviewAnswer(q) {
+    if (!reviewerAvailable || typeof fetch !== "function" || typeof AbortController !== "function") {
+      return null;
+    }
+    var controller = new AbortController();
+    var timer = setTimeout(function () { controller.abort(); }, REVIEW_TIMEOUT_MS);
+    try {
+      var res = await fetch("/api/review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json" },
+        body: JSON.stringify({ questionText: q.text, answerType: q.type, answer: q.answer }),
+        signal: controller.signal
+      });
+      if (!res.ok) {
+        // 502 means the reviewer itself is down. Stop asking for the rest of
+        // the session rather than making every Next wait eight seconds to
+        // learn the same thing again.
+        if (res.status >= 500) reviewerAvailable = false;
+        return null;
+      }
+      var verdict = await res.json();
+      return (verdict && verdict.verdict) ? verdict : null;
+    } catch (err) {
+      reviewerAvailable = false;
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   function showScreen(name) {
@@ -1552,6 +1635,13 @@
       // Validated against the question's own rule, the same one the
       // questionnaire applies. An edit here is not a lesser kind of answer.
       var problem = validateAnswer({ type: q.type, required: q.required, answer: next, unknown: false });
+      // Same bar as the questionnaire, minus the reviewer: this saves many
+      // answers at once, and asking the model about each would turn one
+      // click into a queue of round trips. The local check still refuses
+      // what could not be a good-faith answer.
+      if (!problem && q.type === "text" && classifyAnswerLocally(next) === "nonsense") {
+        problem = "That doesn't look like an answer to this question.";
+      }
       if (problem) {
         err.textContent = problem;
         err.classList.add("show");
@@ -1881,13 +1971,36 @@
       setFieldError(invalidEl, msg);
       return;
     }
-    // Soft quality check, text answers only -- warns once, doesn't block.
-    // Clicking Next again (or editing the text, which resets the flag)
-    // proceeds; the human's judgment wins over the heuristic.
-    if (q.type === "text" && !q.qualityAcknowledged && looksLikeLowQualityAnswer(q.answer)) {
-      q.qualityAcknowledged = true;
-      setQualityWarning("This answer looks short or unclear for what's being asked — double check it, or click Next again to continue anyway.");
-      return;
+    // Quality check, free-text answers only. Two levels: something that
+    // could not be a good-faith answer is refused, something merely thin is
+    // warned about once and proceeds on a second click.
+    //
+    // The reviewer is asked first and its verdict wins, because it can judge
+    // whether the text answers THIS question -- "Who cares!" is well-formed
+    // English and no pattern will ever catch it. The local check is what
+    // runs when the reviewer cannot be reached.
+    if (q.type === "text" && q.answer && String(q.answer).trim()) {
+      var verdict = await reviewAnswer(q);
+      var level = verdict
+        ? (verdict.verdict === "nonsense" ? "nonsense" : (verdict.verdict === "unclear" ? "thin" : "ok"))
+        : classifyAnswerLocally(q.answer);
+      var reason = (verdict && verdict.reason) ? verdict.reason : null;
+
+      if (level === "nonsense") {
+        // Refused, and not overridable -- but never a dead end: Skip and
+        // "Not known yet" are both still there, and both are honest.
+        q.qualityAcknowledged = false;
+        setQualityWarning(null);
+        setFieldError(document.querySelector(".q-input"),
+          reason || "That doesn't look like an answer to this question. Rewrite it, or use Skip or “Not known yet”.");
+        return;
+      }
+      if (level === "thin" && !q.qualityAcknowledged) {
+        q.qualityAcknowledged = true;
+        setQualityWarning((reason || "This answer looks short or unclear for what's being asked") +
+          " — double check it, or click Next again to continue anyway.");
+        return;
+      }
     }
     setQualityWarning(null);
     q.skipped = false; // reached Next validly -- required-and-blank can't get here, so this is a real answer or an optional blank left alone
@@ -2018,7 +2131,9 @@
   document.getElementById("chat-input").addEventListener("keydown", safe(function (e) {
     if (e.key === "Enter") sendChat();
   }));
-  function sendChat() {
+  // async because the answer is reviewed before it is accepted -- see
+  // reviewAnswer(); every early return below leaves the record untouched.
+  async function sendChat() {
     if (chatStep >= chatGaps.length) return; // gaps already exhausted -- nothing left to send
     var input = document.getElementById("chat-input");
     var val = input.value.trim();
@@ -2058,6 +2173,28 @@
         addMessage("ai", problem + " " + gapQ.text);
       }, 400);
       return;
+    }
+
+    // The same quality bar as the questionnaire. The chat used to be the
+    // soft spot: anything typed here went straight onto the record, so the
+    // way to get nonsense into a client file was to wait for the follow-up.
+    if (gapQ.type === "text") {
+      var chatVerdict = await reviewAnswer(gapQ);
+      var chatLevel = chatVerdict
+        ? (chatVerdict.verdict === "nonsense" ? "nonsense" : "ok")
+        : classifyAnswerLocally(gapQ.answer);
+      if (chatLevel === "nonsense") {
+        gapQ.answer = previousAnswer;
+        gapQ.unknown = previousUnknown;
+        var typingBad = addTyping();
+        setTimeout(function () {
+          typingBad.remove();
+          addMessage("ai", (chatVerdict && chatVerdict.reason)
+            ? chatVerdict.reason + " " + gapQ.text
+            : "I couldn't make sense of that as an answer here. " + gapQ.text);
+        }, 400);
+        return;
+      }
     }
 
     // Saved per answer, not only when the chat ends. The questionnaire

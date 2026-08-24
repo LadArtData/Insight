@@ -116,9 +116,14 @@ async function clickSkip(win) {
 }
 
 // Answers every Phase 1 intake question with a value its type accepts.
+//
+// The placeholder is a full sentence on purpose. Two-word stubs like
+// "answer 3" now trip the thin-answer warning, which is the point of that
+// check -- so a helper that used them would spend its life clicking Next
+// twice and hiding the behaviour it was meant to exercise.
 async function fillIntake(win) {
   for (let i = 0; i < INTAKE_COUNT; i++) {
-    fillValid(win, "answer " + i);
+    fillValid(win, "A considered answer for intake question " + i + ".");
     await clickNext(win);
   }
 }
@@ -144,7 +149,7 @@ async function finishRemainingQuestions(win) {
     if (byId(win, "screen-chat").classList.contains("active")) return;
     const ynButtons = win.document.querySelectorAll(".yn-btn");
     if (ynButtons.length) clickYn(win, "Yes");
-    else fillValid(win, "answer");
+    else fillValid(win, "A considered answer for this discovery question.");
     await clickNext(win);
   }
   throw new Error("finishRemainingQuestions: never reached chat screen");
@@ -380,14 +385,17 @@ test("quality check: keyboard-mashed text warns and blocks the first Next click"
   assert.equal(progressLabel(win), "1 / " + GL_ONLY_DECK, "must not have advanced on the first click");
 });
 
-test("quality check: a bracket-containing answer also warns", async () => {
+test("quality check: a bracket-containing answer is refused, not merely warned", async () => {
   const dom = await bootApp();
   const win = dom.window;
   byId(win, "btn-new-client").click();
   fillText(win, "[piuo8ytru");
   byId(win, "q-next").click();
-  await wait(10);
-  assert.match(byId(win, "q-quality-warning").textContent, /looks short or unclear/i);
+  await wait(30);
+  // Stray characters could not be a good-faith answer from anyone, so this
+  // is refused outright rather than warned about. Compare the test above:
+  // "ewdrefvebrn" is only suspicious, and a person gets to overrule that.
+  assert.match(byId(win, "q-field-error").textContent, /doesn't look like an answer/i);
   assert.equal(progressLabel(win), "1 / " + GL_ONLY_DECK);
 });
 
@@ -419,7 +427,7 @@ test("quality check: normal multi-word answers never trigger the warning", async
   const dom = await bootApp();
   const win = dom.window;
   byId(win, "btn-new-client").click();
-  await fillIntake(win); // fillIntake's "answer 0".."answer 9" are all multi-word/short -- none should ever warn
+  await fillIntake(win); // full sentences, the shape a real answer takes -- none should ever warn
   assert.equal(byId(win, "q-quality-warning").classList.contains("show"), false);
 });
 
@@ -1287,7 +1295,8 @@ async function finishDeckSkippingOneNumeric(win) {
       continue;
     }
     const yn = win.document.querySelectorAll(".yn-btn");
-    if (yn.length) clickYn(win, "Yes"); else fillValid(win, "answer " + i);
+    if (yn.length) clickYn(win, "Yes");
+    else fillValid(win, "A considered answer for question " + i + ".");
     await clickNext(win);
   }
   assert.ok(skipped, "expected a numeric question outside Phase 1");
@@ -1513,5 +1522,191 @@ test("client info: with no backend, editing an answer keeps the rest of the reco
   assert.equal(qfField(win, "INTAKE-002").value, "D. Okafor");
   assert.equal(qfField(win, "INTAKE-001").value, "Harbor Freight Logistics, Harbor",
     "the in-memory store must merge the edit, not replace the record with it");
+  win.close();
+});
+
+// ---------------------------------------------------------------------------
+// Answer quality: the reviewer decides when it can be reached, a local check
+// decides when it cannot, and neither is ever allowed to be a dead end.
+// ---------------------------------------------------------------------------
+
+// Fake fetch that answers /api/review with a fixed verdict and everything
+// else the way an absent backend would.
+function reviewerFetch(verdict, calls) {
+  return function (url, opts) {
+    const u = String(url);
+    if (u.includes("/api/review")) {
+      if (calls) calls.push(JSON.parse(opts.body));
+      if (verdict === "down") {
+        return Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({}) });
+      }
+      return Promise.resolve({
+        ok: true, status: 200,
+        json: () => Promise.resolve(verdict),
+        text: () => Promise.resolve(JSON.stringify(verdict)),
+      });
+    }
+    return Promise.reject(new Error("offline"));
+  };
+}
+
+test("quality: keyboard mash is refused outright, with no override", async () => {
+  const dom = await bootApp();          // no fetch at all -- local check only
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await wait(20);
+  const before = progressLabel(win);
+
+  fillText(win, "asdfghjkl");
+  await clickNext(win);
+  await wait(40);
+  assert.equal(progressLabel(win), before, "should not advance");
+  // and clicking again must not let it through, unlike the thin-answer warning
+  await clickNext(win);
+  await wait(40);
+  assert.equal(progressLabel(win), before, "a second click must not override a refusal");
+  assert.match(byId(win, "q-field-error").textContent, /doesn't look like an answer/i);
+  win.close();
+});
+
+test("quality: a refused answer still leaves Skip and Not known yet open", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await wait(20);
+  const before = progressLabel(win);
+
+  fillText(win, "{{{{}}}}");
+  await clickNext(win);
+  await wait(40);
+  assert.equal(progressLabel(win), before);
+
+  // Refusing an answer must never trap someone with nothing they can do.
+  await clickSkip(win);
+  await wait(40);
+  assert.notEqual(progressLabel(win), before, "Skip must still work");
+  win.close();
+});
+
+test("quality: the reviewer's verdict wins over the local check", async () => {
+  const sent = [];
+  const dom = await bootApp((win) => {
+    win.fetch = reviewerFetch({ verdict: "nonsense", reason: "That doesn't answer what was asked." }, sent);
+  });
+  const win = dom.window;
+  await wait(40);
+  byId(win, "btn-new-client").click();
+  await wait(20);
+  const before = progressLabel(win);
+
+  // Well-formed English that no pattern would ever catch.
+  fillText(win, "Who cares about any of this");
+  await clickNext(win);
+  await wait(60);
+
+  assert.equal(progressLabel(win), before, "the reviewer refused it, so it must not advance");
+  assert.match(byId(win, "q-field-error").textContent, /That doesn't answer what was asked/);
+  assert.equal(sent.length, 1, "one review call per attempt");
+  assert.ok(sent[0].questionText && sent[0].answer, "the question and the answer are both sent");
+  win.close();
+});
+
+test("quality: an 'unclear' verdict warns once and then proceeds", async () => {
+  const dom = await bootApp((win) => {
+    win.fetch = reviewerFetch({ verdict: "unclear", reason: "That's a bit vague." });
+  });
+  const win = dom.window;
+  await wait(40);
+  byId(win, "btn-new-client").click();
+  await wait(20);
+  const before = progressLabel(win);
+
+  fillText(win, "Meridian County Government, Meridian");
+  await clickNext(win);
+  await wait(60);
+  assert.equal(progressLabel(win), before, "first click warns");
+  assert.match(byId(win, "q-quality-warning").textContent, /a bit vague/i);
+
+  await clickNext(win);
+  await wait(60);
+  assert.notEqual(progressLabel(win), before, "second click proceeds -- the person decides");
+  win.close();
+});
+
+test("quality: a good answer passes straight through", async () => {
+  const dom = await bootApp((win) => { win.fetch = reviewerFetch({ verdict: "ok", reason: "" }); });
+  const win = dom.window;
+  await wait(40);
+  byId(win, "btn-new-client").click();
+  await wait(20);
+  const before = progressLabel(win);
+
+  fillText(win, "Meridian County Government, known informally as Meridian.");
+  await clickNext(win);
+  await wait(60);
+  assert.notEqual(progressLabel(win), before);
+  win.close();
+});
+
+test("quality: a reviewer that is down does not block the questionnaire", async () => {
+  const dom = await bootApp((win) => { win.fetch = reviewerFetch("down"); });
+  const win = dom.window;
+  await wait(40);
+  byId(win, "btn-new-client").click();
+  await wait(20);
+  const before = progressLabel(win);
+
+  // An outage in a quality check must not become an outage in the app.
+  fillText(win, "Meridian County Government, Meridian");
+  await clickNext(win);
+  await wait(60);
+  assert.notEqual(progressLabel(win), before, "a 502 from the reviewer must not stop anyone");
+  win.close();
+});
+
+test("quality: the reviewer is asked once, then left alone while it is down", async () => {
+  let reviewCalls = 0;
+  const dom = await bootApp((win) => {
+    win.fetch = (url, opts) => {
+      if (String(url).includes("/api/review")) {
+        reviewCalls += 1;
+        return Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({}) });
+      }
+      return Promise.reject(new Error("offline"));
+    };
+  });
+  const win = dom.window;
+  await wait(40);
+  byId(win, "btn-new-client").click();
+  await wait(20);
+
+  for (let i = 0; i < 3; i++) {
+    fillValid(win, "A considered answer for question " + i + ".");
+    await clickNext(win);
+    await wait(40);
+  }
+  // Making every Next wait on a service known to be down would be its own
+  // kind of broken.
+  assert.equal(reviewCalls, 1, "should stop asking after the first failure");
+  win.close();
+});
+
+test("quality: the chat holds answers to the same bar", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await fillIntake(win);
+  await answerQualifiers(win);
+  await clickSkip(win);                // one gap, a GL text question
+  await finishRemainingQuestions(win);
+  await wait(1300);
+
+  byId(win, "chat-input").value = "asdfghjkl";
+  byId(win, "chat-send").click();
+  await wait(900);
+
+  const body = byId(win, "chat-body").textContent;
+  assert.doesNotMatch(body, /covers the required gaps/,
+    "nonsense in the chat must not count as filling the gap");
   win.close();
 });

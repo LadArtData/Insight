@@ -86,6 +86,19 @@ server {
         client_max_body_size 32k;
     }
 
+    # Answer review sits in front of the Next button, so a person is waiting
+    # on it with nothing else to do. A much shorter timeout than /api/chat on
+    # purpose: the front end falls back to its own check when the reviewer
+    # does not answer in time, and waiting four minutes to be told nothing
+    # would be worse than deciding locally in eight seconds.
+    location /api/review {
+        proxy_pass http://127.0.0.1:5001/review;
+        proxy_set_header Host $host;
+        proxy_read_timeout 8s;
+        proxy_connect_timeout 2s;
+        client_max_body_size 16k;
+    }
+
     location / {
         try_files $uri $uri/ =404;
     }

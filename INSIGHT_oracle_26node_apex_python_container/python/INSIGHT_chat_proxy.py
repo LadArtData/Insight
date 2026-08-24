@@ -219,6 +219,72 @@ def parse_llm_response(raw_text):
         }
 
 
+# Answer review. A regex can tell that "asdfgh" is not an answer; it cannot
+# tell that "Who cares!" is not an answer to a question about Tax IDs. That
+# judgement is what the model is for.
+#
+# Three verdicts, because two would force every borderline answer into either
+# "block a real person" or "accept anything":
+#
+#   ok        answers the question -- save it
+#   unclear   on topic but does not actually answer, or is too thin to be
+#             usable -- warn, let the person decide
+#   nonsense  not an answer at all -- refuse it
+#
+# The model is told to be conservative: a terse answer from someone who knows
+# the subject is still an answer, and refusing those is worse than accepting a
+# weak one, because the person then has no way forward except padding.
+REVIEW_FRAMING = """You are reviewing answers captured in an Oracle Fusion Financials \
+discovery questionnaire, before they are saved. You will be given one question and the answer \
+someone typed. Decide whether the answer is usable.
+
+Verdicts:
+- "ok": it answers the question, even if brief or informal. A short answer from someone who \
+knows the subject is fine. So is "we don't do that", "not applicable", or naming a system or a \
+number without elaboration.
+- "unclear": on topic but does not actually answer what was asked, or is too vague to act on \
+(for example "some", "the usual", "TBD", or answering a different question).
+- "nonsense": not an answer at all -- keyboard mashing, random characters, a joke, or a refusal \
+to engage such as "who cares".
+
+Be conservative. When in doubt between "ok" and "unclear", choose "ok". Only use "nonsense" \
+when the text could not be a good-faith answer from anyone.
+
+"reason" is shown to the person, so write it as one short, courteous sentence telling them what \
+is missing. Leave it empty when the verdict is "ok".
+
+Respond with ONLY a JSON object, no other text, in exactly this shape:
+{"verdict": "ok|unclear|nonsense", "reason": "..."}"""
+
+
+def build_review_prompt(question_text, answer_type, answer):
+    return (
+        f"{REVIEW_FRAMING}\n\n"
+        f'Question ({answer_type} type): "{question_text}"\n\n'
+        f'Answer typed: "{answer}"'
+    )
+
+
+def parse_review_response(raw_text):
+    """
+    Parses the review verdict. Anything unparseable is treated as "ok".
+
+    That direction is deliberate. A malformed model reply is a fault in this
+    service, and refusing someone's work because of one would be the worse
+    failure -- they would have no way to continue and no idea why. The local
+    check in the front end still applies, so obvious garbage is still caught.
+    """
+    try:
+        parsed = json.loads(raw_text.strip())
+        verdict = parsed.get("verdict")
+        if verdict not in ("ok", "unclear", "nonsense"):
+            raise ValueError("unrecognised verdict")
+        reason = parsed.get("reason")
+        return {"verdict": verdict, "reason": reason if isinstance(reason, str) else ""}
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        return {"verdict": "ok", "reason": ""}
+
+
 def call_llm(gap_context, user_message):
     """
     The one function that actually talks to OCI. Kept separate from the
@@ -226,10 +292,19 @@ def call_llm(gap_context, user_message):
     exercise the route's request validation / response handling without
     ever constructing a real OCI client.
     """
+    return invoke_model(build_prompt(gap_context, user_message))
+
+
+def call_review(question_text, answer_type, answer):
+    """Asks the model whether an answer is usable. Same plumbing as call_llm."""
+    return invoke_model(build_review_prompt(question_text, answer_type, answer))
+
+
+def invoke_model(prompt):
+    """The single place a request is actually sent to OCI."""
     import oci  # local import -- see get_oci_client()
 
     client = get_oci_client()
-    prompt = build_prompt(gap_context, user_message)
 
     chat_request = oci.generative_ai_inference.models.GenericChatRequest()
     chat_request.messages = [
@@ -301,6 +376,33 @@ def chat():
         return jsonify({"error": "The AI assistant is temporarily unavailable. Please try again."}), 502
 
     return jsonify(parse_llm_response(raw_text))
+
+
+@app.route("/review", methods=["POST"])
+def review():
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Request body must be JSON"}), 400
+
+    question_text = body.get("questionText")
+    answer = body.get("answer")
+    answer_type = body.get("answerType") or "text"
+    if not question_text or not answer:
+        return jsonify({"error": "questionText and answer are required"}), 400
+    if len(answer) > 2000 or len(question_text) > 1000:
+        return jsonify({"error": "questionText or answer is too long"}), 400
+
+    try:
+        raw_text = call_review(question_text, answer_type, answer)
+    except Exception as exc:  # noqa: BLE001 -- any OCI/network failure
+        # 502 rather than a verdict. The front end treats an unreachable
+        # reviewer as "no opinion" and falls back to its own check, so
+        # inventing "ok" here would be indistinguishable from the model
+        # having actually approved the answer.
+        app.logger.error("OCI review call failed: %s", exc)
+        return jsonify({"error": "The reviewer is temporarily unavailable."}), 502
+
+    return jsonify(parse_review_response(raw_text))
 
 
 if __name__ == "__main__":

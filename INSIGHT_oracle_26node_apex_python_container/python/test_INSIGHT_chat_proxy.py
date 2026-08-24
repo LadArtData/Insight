@@ -184,3 +184,78 @@ class ModelDefaultsTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(RuntimeError):
                 proxy.require_env("OCI_SOMETHING_UNSET")
+
+
+class ParseReviewResponseTests(unittest.TestCase):
+    def test_each_valid_verdict_survives(self):
+        for verdict in ("ok", "unclear", "nonsense"):
+            raw = json.dumps({"verdict": verdict, "reason": "because"})
+            self.assertEqual(proxy.parse_review_response(raw)["verdict"], verdict)
+
+    def test_unrecognised_verdict_falls_back_to_ok(self):
+        raw = json.dumps({"verdict": "terrible", "reason": "nope"})
+        self.assertEqual(proxy.parse_review_response(raw)["verdict"], "ok")
+
+    def test_malformed_json_falls_back_to_ok(self):
+        # Deliberately permissive: a bug in this service must not be able to
+        # refuse someone's work. The front end's own check still applies.
+        self.assertEqual(proxy.parse_review_response("not json at all")["verdict"], "ok")
+
+    def test_missing_reason_becomes_empty_string(self):
+        raw = json.dumps({"verdict": "unclear"})
+        self.assertEqual(proxy.parse_review_response(raw)["reason"], "")
+
+    def test_prompt_carries_the_question_and_the_answer(self):
+        prompt = proxy.build_review_prompt("How many ledgers?", "number", "quite a few")
+        self.assertIn("How many ledgers?", prompt)
+        self.assertIn("quite a few", prompt)
+        self.assertIn("number", prompt)
+        # The instruction that keeps it from refusing terse but real answers.
+        self.assertIn("Be conservative", prompt)
+
+
+class ReviewRouteTests(unittest.TestCase):
+    def setUp(self):
+        proxy.app.testing = True
+        self.client = proxy.app.test_client()
+
+    def body(self, **overrides):
+        b = {
+            "questionText": "What are the legal names for each entity?",
+            "answerType": "text",
+            "answer": "Meridian County Water District and two subsidiaries.",
+        }
+        b.update(overrides)
+        return b
+
+    def test_rejects_non_json(self):
+        resp = self.client.post("/review", data="nope", content_type="text/plain")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_requires_question_and_answer(self):
+        self.assertEqual(self.client.post("/review", json={"answer": "x"}).status_code, 400)
+        self.assertEqual(
+            self.client.post("/review", json={"questionText": "x"}).status_code, 400)
+
+    def test_rejects_an_oversized_answer(self):
+        resp = self.client.post("/review", json=self.body(answer="x" * 2001))
+        self.assertEqual(resp.status_code, 400)
+
+    def test_passes_the_model_verdict_through(self):
+        with mock.patch.object(
+            proxy, "call_review",
+            return_value=json.dumps({"verdict": "nonsense", "reason": "That is not an answer."}),
+        ):
+            resp = self.client.post("/review", json=self.body(answer="Who cares!"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.get_json()["verdict"], "nonsense")
+        self.assertEqual(resp.get_json()["reason"], "That is not an answer.")
+
+    def test_oci_failure_is_a_502_not_a_verdict(self):
+        # An unreachable reviewer must be distinguishable from one that
+        # approved the answer, or an outage would silently wave everything
+        # through while looking exactly like success.
+        with mock.patch.object(proxy, "call_review", side_effect=RuntimeError("no policy")):
+            resp = self.client.post("/review", json=self.body())
+        self.assertEqual(resp.status_code, 502)
+        self.assertNotIn("verdict", resp.get_json())
