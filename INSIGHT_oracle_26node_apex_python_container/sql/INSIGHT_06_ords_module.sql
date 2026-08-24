@@ -17,6 +17,8 @@ SET DEFINE OFF
 --   PUT    /ords/admin/insight/clients/:id/notes      edit or archive a note
 --   GET    /ords/admin/insight/clients/:id/updates    configuration updates
 --   POST   /ords/admin/insight/clients/:id/updates    record one
+--   GET    /ords/admin/insight/clients/:id/changes    changes awaiting review
+--   PUT    /ords/admin/insight/clients/:id/changes    approve or reject one
 --
 -- This replaces the earlier insight-hooks and insight-questionnaire
 -- modules, which split one product across two base paths and two entries in
@@ -1162,6 +1164,184 @@ BEGIN
   COMMIT;
   :status := 201;
   HTP.P(''{"ok":true,"updateId":'' || l_upd_id || ''}'');
+EXCEPTION WHEN OTHERS THEN
+  ROLLBACK;
+  :status := 500;
+  HTP.P(''{"ok":false,"error":"'' || REPLACE(SUBSTR(SQLERRM,1,300),''"'',''`'') || ''"}'');
+END;');
+
+  ----------------------------------------------------------------------------
+  -- /insight/clients/:client_id/changes
+  --
+  -- Changes waiting for a person. After V25 only the assistant can produce
+  -- one: a consultant''s edit applies directly and is recorded as APPLIED.
+  --
+  -- These endpoints exist because the package has had approve_change_request
+  -- since V9 and nothing ever called it. A queue with no way to see it is
+  -- indistinguishable, from the outside, from losing the answer.
+  ----------------------------------------------------------------------------
+  ORDS.DEFINE_TEMPLATE(
+      p_module_name    => 'insight',
+      p_pattern        => 'clients/:client_id/changes',
+      p_priority       => 0,
+      p_etag_type      => 'NONE',
+      p_etag_query     => NULL,
+      p_comments       => 'Answer changes awaiting review for one client');
+
+  ORDS.DEFINE_HANDLER(
+      p_module_name    => 'insight',
+      p_pattern        => 'clients/:client_id/changes',
+      p_method         => 'GET',
+      p_source_type    => 'plsql/block',
+      p_mimes_allowed  => NULL,
+      p_comments       => 'Pending changes, oldest first -- review order is arrival order',
+      p_source         =>
+'DECLARE
+  l_api_key   VARCHAR2(200);
+  l_req_key   VARCHAR2(200) := :api_key;
+  l_client_id VARCHAR2(40)  := :client_id;
+  l_out       CLOB;
+  PROCEDURE emit(p_clob IN CLOB) IS
+    l_len PLS_INTEGER;
+    l_off PLS_INTEGER := 1;
+    l_amt PLS_INTEGER := 8000;
+  BEGIN
+    IF p_clob IS NULL THEN RETURN; END IF;
+    l_len := DBMS_LOB.GETLENGTH(p_clob);
+    WHILE l_off <= l_len LOOP
+      HTP.PRN(DBMS_LOB.SUBSTR(p_clob, l_amt, l_off));
+      l_off := l_off + l_amt;
+    END LOOP;
+  END emit;
+BEGIN
+  -- Dynamic SQL on purpose. A static reference to api_configuration makes
+  -- the whole handler fail to COMPILE if that table is absent, and a
+  -- compile error cannot be caught by the block''s own EXCEPTION clause --
+  -- ORDS just returns ORDS-25001 / HTTP 555 with no usable detail. Bound
+  -- at run time instead, a missing table is an ordinary exception, and
+  -- "no key table" degrades to "no key required" rather than a dead API.
+  BEGIN
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.insight_api_config WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+      INTO l_api_key;
+  EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
+  IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
+    :status := 403; HTP.P(''{"ok":false,"error":"unauthorized"}''); RETURN;
+  END IF;
+
+  -- The question text travels with the request. Reviewing "GL-014" against
+  -- two values is not a decision anyone can make; reviewing the question is.
+  SELECT JSON_ARRAYAGG(
+           JSON_OBJECT(
+             ''id''            VALUE r.request_id,
+             ''questionId''    VALUE r.question_id,
+             ''questionText''  VALUE q.question_text,
+             ''previousValue'' VALUE r.previous_value,
+             ''proposedValue'' VALUE r.proposed_value,
+             ''submittedBy''   VALUE r.submitted_by,
+             ''submittedAt''   VALUE TO_CHAR(r.submitted_at AT TIME ZONE ''UTC'', ''YYYY-MM-DD"T"HH24:MI:SS"Z"'')
+             RETURNING CLOB)
+           ORDER BY r.submitted_at
+           RETURNING CLOB)
+    INTO l_out
+    FROM iteria_ai.insight_answer_change_requests r
+    LEFT JOIN iteria_ai.insight_questions q
+      ON q.question_id = r.question_id
+   WHERE r.client_id = l_client_id
+     AND r.status = ''PENDING'';
+
+  emit(NVL(l_out, TO_CLOB(''[]'')));
+EXCEPTION WHEN OTHERS THEN
+  :status := 500;
+  HTP.P(''{"ok":false,"error":"'' || REPLACE(SUBSTR(SQLERRM,1,300),''"'',''`'') || ''"}'');
+END;');
+
+  ORDS.DEFINE_HANDLER(
+      p_module_name    => 'insight',
+      p_pattern        => 'clients/:client_id/changes',
+      p_method         => 'PUT',
+      p_source_type    => 'plsql/block',
+      p_mimes_allowed  => 'application/json',
+      p_comments       => 'Approves or rejects one change, or all pending ones for the client',
+      p_source         =>
+'DECLARE
+  l_api_key   VARCHAR2(200);
+  l_req_key   VARCHAR2(200) := :api_key;
+  l_client_id VARCHAR2(40)  := :client_id;
+  l_body      CLOB          := :body_text;
+  l_doc       JSON_OBJECT_T;
+  l_req_id    NUMBER;
+  l_decision  VARCHAR2(20);
+  l_actor     VARCHAR2(100);
+  l_note      VARCHAR2(500);
+  l_done      NUMBER := 0;
+BEGIN
+  -- Dynamic SQL on purpose. A static reference to api_configuration makes
+  -- the whole handler fail to COMPILE if that table is absent, and a
+  -- compile error cannot be caught by the block''s own EXCEPTION clause --
+  -- ORDS just returns ORDS-25001 / HTTP 555 with no usable detail. Bound
+  -- at run time instead, a missing table is an ordinary exception, and
+  -- "no key table" degrades to "no key required" rather than a dead API.
+  BEGIN
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.insight_api_config WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+      INTO l_api_key;
+  EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
+  IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
+    :status := 403; HTP.P(''{"ok":false,"error":"unauthorized"}''); RETURN;
+  END IF;
+
+  IF l_body IS NULL OR DBMS_LOB.GETLENGTH(l_body) = 0 THEN
+    :status := 400; HTP.P(''{"ok":false,"error":"request body is required"}''); RETURN;
+  END IF;
+
+  BEGIN
+    l_doc := JSON_OBJECT_T.parse(l_body);
+  EXCEPTION WHEN OTHERS THEN
+    :status := 400; HTP.P(''{"ok":false,"error":"request body is not valid JSON"}''); RETURN;
+  END;
+
+  l_decision := LOWER(SUBSTR(NVL(l_doc.get_String(''decision''), ''''), 1, 20));
+  IF l_decision NOT IN (''approve'', ''reject'') THEN
+    :status := 400; HTP.P(''{"ok":false,"error":"decision must be approve or reject"}''); RETURN;
+  END IF;
+
+  l_actor := SUBSTR(NVL(l_doc.get_String(''actor''), ''insight-app''), 1, 100);
+  l_note  := SUBSTR(l_doc.get_String(''note''), 1, 500);
+
+  BEGIN
+    l_req_id := l_doc.get_Number(''requestId'');
+  EXCEPTION WHEN OTHERS THEN l_req_id := NULL; END;
+
+  -- One request, or every pending one for this client. The bulk path is
+  -- here because a backlog that can only be cleared one click at a time is
+  -- a backlog nobody clears.
+  FOR r IN (
+    SELECT request_id
+      FROM iteria_ai.insight_answer_change_requests
+     WHERE client_id = l_client_id
+       AND status = ''PENDING''
+       AND (l_req_id IS NULL OR request_id = l_req_id)
+     ORDER BY submitted_at
+  ) LOOP
+    IF l_decision = ''approve'' THEN
+      iteria_ai.pkg_insight_answers.approve_change_request(r.request_id, l_actor, l_note);
+    ELSE
+      iteria_ai.pkg_insight_answers.reject_change_request(r.request_id, l_actor, l_note);
+    END IF;
+    l_done := l_done + 1;
+  END LOOP;
+
+  IF l_done = 0 THEN
+    :status := 404;
+    HTP.P(''{"ok":false,"error":"nothing pending to review"}'');
+    RETURN;
+  END IF;
+
+  UPDATE iteria_ai.insight_clients
+     SET updated_at = CURRENT_TIMESTAMP
+   WHERE client_id = l_client_id;
+
+  COMMIT;
+  HTP.P(''{"ok":true,"'' || l_decision || ''d":'' || l_done || ''}'');
 EXCEPTION WHEN OTHERS THEN
   ROLLBACK;
   :status := 500;

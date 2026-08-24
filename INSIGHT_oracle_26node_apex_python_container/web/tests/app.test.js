@@ -555,6 +555,37 @@ function statefulFakeOrds() {
       return respond(200, list);
     }
 
+    // /clients/:id/changes -- mirrors the review handlers. Only AI_ASSIST
+    // proposals ever land here after V25.
+    const chgMatch = path.match(/^\/clients\/([^/]+)\/changes$/);
+    if (chgMatch) {
+      const cid = decodeURIComponent(chgMatch[1]);
+      const client = clients.get(cid);
+      if (!client) return respond(404, { ok: false, error: "client not found" });
+      client.changes = client.changes || [];
+      if (method === "GET") return respond(200, client.changes.filter((c) => c.status === "PENDING"));
+      if (method === "PUT") {
+        const body = JSON.parse(opts.body);
+        if (!["approve", "reject"].includes(body.decision)) {
+          return respond(400, { ok: false, error: "decision must be approve or reject" });
+        }
+        const targets = client.changes.filter((c) => c.status === "PENDING" &&
+          (body.requestId === undefined || String(c.id) === String(body.requestId)));
+        if (!targets.length) return respond(404, { ok: false, error: "nothing pending to review" });
+        targets.forEach((c) => {
+          if (body.decision === "approve") {
+            client.answers[c.questionId] = c.proposedValue;
+            c.status = "APPROVED";
+          } else {
+            c.status = "REJECTED";
+          }
+        });
+        client.updatedAt = now;
+        return respond(200, { ok: true, [body.decision + "d"]: targets.length });
+      }
+      return respond(404, { ok: false, error: "no route" });
+    }
+
     // /clients/:id/updates -- append-only, exactly like the real handler:
     // there is no PUT, because an update is a record of something that
     // happened.
@@ -634,6 +665,7 @@ function statefulFakeOrds() {
       const existing = clients.get(id) || { companyName: "Unnamed client", answers: {}, skipped: {}, createdAt: now };
       let saved = 0, pendingApproval = 0;
       const answers = Object.assign({}, existing.answers);
+      existing.changes = existing.changes || [];
       Object.keys(body.answers || {}).forEach((qid) => {
         const newVal = body.answers[qid];
         const hadValue = existing.answers[qid] !== undefined && existing.answers[qid] !== null && existing.answers[qid] !== "";
@@ -641,8 +673,16 @@ function statefulFakeOrds() {
           answers[qid] = newVal; saved++;
         } else if (existing.answers[qid] === newVal) {
           // unchanged -- neither saved nor pending
+        } else if (body.source === "AI_ASSIST") {
+          // V25: only the assistant's proposals wait for a person.
+          existing.changes.push({
+            id: nextNoteId++, questionId: qid, questionText: qid,
+            previousValue: existing.answers[qid], proposedValue: newVal,
+            submittedBy: "assistant", submittedAt: now, status: "PENDING",
+          });
+          pendingApproval++;
         } else {
-          pendingApproval++; // matches record_answer: edit to an existing answer does not overwrite
+          answers[qid] = newVal; saved++;
         }
       });
       // Presence decides, exactly as the handler does: a PUT carrying only
@@ -655,6 +695,7 @@ function statefulFakeOrds() {
           ? body.primaryContact : existing.primaryContact,
         notes: existing.notes || [],
         configUpdates: existing.configUpdates || [],
+        changes: existing.changes || [],
         answers, skipped: body.skipped || existing.skipped,
         createdAt: existing.createdAt, updatedAt: now,
       });
@@ -729,7 +770,12 @@ test("delete calls the DELETE endpoint and the client no longer lists", async ()
   win.close();
 });
 
-test("editing an already-answered question surfaces the pending-approval count instead of silently doing nothing", async () => {
+test("editing an already-answered question applies it, and says nothing about approval", async () => {
+  // Was the reverse until V25. Gating a consultant's own edit protected
+  // nothing -- there is no second reviewer -- while filling a queue nothing
+  // could display, so a nearly-complete client accumulated a hundred and
+  // thirty-three proposals and kept showing its first-pass answers. Only
+  // the assistant's proposals wait now.
   const server = statefulFakeOrds();
   const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
   const win = dom.window;
@@ -737,20 +783,46 @@ test("editing an already-answered question surfaces the pending-approval count i
   byId(win, "btn-new-client").click();
   await wait(30);
   fillText(win, "Original Answer");
-  await clickNext(win); // first answer -- saves directly, no approval needed
+  await clickNext(win);
   await wait(60);
-  assert.equal(byId(win, "pending-approval-banner").classList.contains("show"), false,
-    "a first-time answer must not trigger the pending-approval notice");
+  const id = Array.from(server.clients.keys())[0];
 
   byId(win, "q-back").click();
   await wait(30);
-  fillText(win, "Changed Answer"); // editing a value that was already saved
+  fillText(win, "Changed Answer");
   await clickNext(win);
   await wait(60);
 
-  assert.equal(byId(win, "pending-approval-banner").classList.contains("show"), true,
-    "editing an already-answered question should surface the pending-approval notice, not save silently");
-  assert.match(byId(win, "pending-approval-banner-text").textContent, /1 edit is pending review/);
+  assert.equal(server.clients.get(id).answers["INTAKE-001"], "Changed Answer",
+    "a consultant's edit belongs on the record, not in a queue");
+  assert.equal(byId(win, "pending-approval-banner").classList.contains("show"), false,
+    "and there is nothing pending to announce");
+  win.close();
+});
+
+test("editing an already-answered question still records what it replaced", async () => {
+  // The audit trail is the reason the workflow existed. Dropping the
+  // approval step must not drop that.
+  const server = statefulFakeOrds();
+  seedClient(server, "c-audit", { answers: { "QUAL-GL": "Yes", "INTAKE-003": "CFO and Controller" } });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-audit");
+  const sent = [];
+  const original = win.fetch;
+  win.fetch = (url, opts) => {
+    if ((opts || {}).method === "PUT") sent.push(JSON.parse(opts.body));
+    return original(url, opts);
+  };
+
+  typeInto(win, "INTAKE-003", "CFO, Controller and IT Director");
+  byId(win, "client-info-save").click();
+  await wait(100);
+
+  // The front end's part of that contract: say who is making the change,
+  // so the database can tell a consultant's edit from the assistant's.
+  assert.equal(sent[0].source, "CONSULTANT");
   win.close();
 });
 
@@ -1473,7 +1545,10 @@ test("client info: skipped intake questions still show in the sheet as outstandi
   win.close();
 });
 
-test("client info: an edit to an answer that already has a value reports as pending review", async () => {
+test("client info: the sheet still reports a queue honestly when there is one", async () => {
+  // A consultant's edit applies after V25, so the only way to see this is
+  // with something the assistant proposed. The sheet must never claim an
+  // edit is saved while it is waiting for a person.
   const server = statefulFakeOrds();
   seedClient(server, "c-pend", { answers: { "QUAL-GL": "Yes", "INTAKE-003": "CFO and Controller" } });
   const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
@@ -1481,14 +1556,18 @@ test("client info: an edit to an answer that already has a value reports as pend
   await wait(60);
   await openInfoSheet(win, "c-pend");
 
-  typeInto(win, "INTAKE-003", "CFO, Controller and IT Director");
-  byId(win, "client-info-save").click();
-  await wait(80);
+  // Stand in for an assistant proposal by answering as one.
+  await server.fetchImpl("/ords/admin/insight/clients/c-pend", {
+    method: "PUT", body: JSON.stringify({
+      companyName: "Meridian County", source: "AI_ASSIST",
+      answers: { "INTAKE-003": "CFO, Controller, IT Director" } }),
+  });
+  await openInfoSheet(win, "c-pend");
 
-  // The fake backend mirrors record_answer: changing a value that exists
-  // raises a change request instead of overwriting.
-  assert.match(byId(win, "client-info-status").textContent, /pending review/i,
-    "the sheet must not claim an edit is saved while it is queued");
+  assert.equal(server.clients.get("c-pend").answers["INTAKE-003"], "CFO and Controller",
+    "an assistant proposal must not reach the record on its own");
+  assert.match(byId(win, "client-info-changes").textContent, /IT Director/,
+    "and it must be visible, or it is indistinguishable from a lost answer");
   win.close();
 });
 
@@ -2124,5 +2203,153 @@ test("guidance: an unreachable assistant says so and leaves the reference materi
   assert.match(answer, /isn't reachable/i, "and says which of the two it is");
   assert.match(byId(win, "guide-body").textContent, /Why it is asked/,
     "the reference material does not depend on the model");
+  win.close();
+});
+
+// ---------------------------------------------------------------------------
+// Approval is for the assistant, not for the consultant -- and whatever does
+// queue has to be visible, or it is indistinguishable from a lost answer.
+// ---------------------------------------------------------------------------
+
+test("approval: a consultant editing an answer applies it directly", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-appr", { answers: { "QUAL-GL": "Yes", "INTAKE-003": "CFO and Controller" } });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-appr");
+
+  typeInto(win, "INTAKE-003", "CFO, Controller and IT Director");
+  byId(win, "client-info-save").click();
+  await wait(100);
+
+  assert.equal(server.clients.get("c-appr").answers["INTAKE-003"], "CFO, Controller and IT Director",
+    "the edit should be on the record, not in a queue");
+  assert.doesNotMatch(byId(win, "client-info-status").textContent, /pending/i);
+  win.close();
+});
+
+test("approval: an assistant proposal waits, and is shown with what it replaces", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-appr", {
+    answers: { "QUAL-GL": "Yes", "INTAKE-003": "CFO and Controller" },
+    changes: [{ id: 5, questionId: "INTAKE-003", questionText: "Who else is a key stakeholder?",
+                previousValue: "CFO and Controller", proposedValue: "CFO, Controller, IT Director",
+                submittedBy: "assistant", submittedAt: "2026-08-24T10:00:00Z", status: "PENDING" }],
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-appr");
+
+  const section = byId(win, "client-info-changes");
+  assert.match(section.textContent, /Who else is a key stakeholder/);
+  // Both values, because a reviewer cannot decide on the new one alone.
+  assert.match(section.textContent, /CFO and Controller/);
+  assert.match(section.textContent, /IT Director/);
+  assert.equal(byId(win, "client-info-changes-label").classList.contains("hidden-section"), false);
+  win.close();
+});
+
+test("approval: approving one applies it and updates the fields above", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-appr", {
+    answers: { "QUAL-GL": "Yes", "INTAKE-003": "CFO and Controller" },
+    changes: [{ id: 5, questionId: "INTAKE-003", questionText: "Who else is a key stakeholder?",
+                previousValue: "CFO and Controller", proposedValue: "CFO, Controller, IT Director",
+                submittedBy: "assistant", submittedAt: "2026-08-24T10:00:00Z", status: "PENDING" }],
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-appr");
+
+  byId(win, "client-info-changes").querySelector("[data-approve]").click();
+  await wait(120);
+
+  assert.equal(server.clients.get("c-appr").answers["INTAKE-003"], "CFO, Controller, IT Director");
+  assert.equal(qfField(win, "INTAKE-003").value, "CFO, Controller, IT Director",
+    "leaving the field showing the old value would contradict what was just done");
+  assert.ok(byId(win, "client-info-changes-label").classList.contains("hidden-section"),
+    "an empty queue hides rather than sitting there empty");
+  win.close();
+});
+
+test("approval: rejecting one leaves the record alone", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-appr", {
+    answers: { "QUAL-GL": "Yes", "INTAKE-003": "CFO and Controller" },
+    changes: [{ id: 5, questionId: "INTAKE-003", questionText: "Who else is a key stakeholder?",
+                previousValue: "CFO and Controller", proposedValue: "Nonsense",
+                submittedBy: "assistant", submittedAt: "2026-08-24T10:00:00Z", status: "PENDING" }],
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-appr");
+
+  byId(win, "client-info-changes").querySelector("[data-reject]").click();
+  await wait(120);
+
+  assert.equal(server.clients.get("c-appr").answers["INTAKE-003"], "CFO and Controller");
+  assert.equal(server.clients.get("c-appr").changes[0].status, "REJECTED");
+  win.close();
+});
+
+test("approval: approve all clears a backlog in one action", async () => {
+  const server = statefulFakeOrds();
+  const changes = [1, 2, 3].map((i) => ({
+    id: i, questionId: "INTAKE-00" + i, questionText: "Question " + i,
+    previousValue: "old " + i, proposedValue: "new " + i,
+    submittedBy: "assistant", submittedAt: "2026-08-24T10:00:0" + i + "Z", status: "PENDING",
+  }));
+  seedClient(server, "c-appr", {
+    answers: { "QUAL-GL": "Yes", "INTAKE-001": "old 1", "INTAKE-002": "old 2", "INTAKE-003": "old 3" },
+    changes,
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  win.confirm = () => true;
+  await openInfoSheet(win, "c-appr");
+  assert.equal(byId(win, "client-info-changes").querySelectorAll(".note-row").length, 3);
+
+  byId(win, "client-info-approve-all").click();
+  await wait(150);
+
+  // A backlog that can only be cleared one click at a time is a backlog
+  // nobody clears.
+  assert.equal(server.clients.get("c-appr").changes.filter((c) => c.status === "PENDING").length, 0);
+  assert.equal(server.clients.get("c-appr").answers["INTAKE-002"], "new 2");
+  win.close();
+});
+
+test("approval: with nothing pending the whole section is hidden", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-appr", { answers: { "QUAL-GL": "Yes" } });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-appr");
+
+  ["client-info-changes-label", "client-info-changes-hint", "client-info-changes-actions"]
+    .forEach((id) => assert.ok(byId(win, id).classList.contains("hidden-section"), id));
+  win.close();
+});
+
+test("approval: no backend means nothing pending, not an error", async () => {
+  const dom = await bootApp((win) => { win.fetch = () => Promise.reject(new Error("offline")); });
+  const win = dom.window;
+  await wait(60);
+  byId(win, "btn-new-client").click();
+  await wait(30);
+  fillText(win, "Harbor Freight Logistics, Harbor");
+  await clickNext(win);
+  await wait(40);
+
+  await openInfoSheet(win, null);
+  assert.ok(byId(win, "client-info").classList.contains("show"));
+  assert.ok(byId(win, "client-info-changes-label").classList.contains("hidden-section"),
+    "the in-memory store has no approval workflow, so there is genuinely nothing pending");
   win.close();
 });

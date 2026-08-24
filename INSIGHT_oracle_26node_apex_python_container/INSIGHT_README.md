@@ -138,13 +138,28 @@ record shape the front end already uses — `{id, companyName,
 primaryContact, answers, skipped, unknown, notes, createdAt, updatedAt}` —
 so wiring the app to it needs no change to its save/load call sites.
 
-An edit to an answer **that has a value** routes through the approval
-workflow rather than overwriting. Filling a blank does not: a question that
-was skipped or marked "not known yet" has a row but no value, so the first
-real answer to it is ordinary intake and applies directly. Before `V21` the
-gate keyed off the row rather than the value, which meant every answer given
-in the AI Follow-Up chat -- whose entire job is filling gaps -- went to the
-approval queue and never reached the record.
+Approval is for the assistant, not for the consultant. Since `V25` the gate
+keys off **who is proposing**: an `AI_ASSIST` change queues and waits for a
+person, while a consultant's or a rep's edit applies directly and writes an
+`APPLIED` row carrying the previous value, so "what did this say before, and
+who changed it" is still answerable.
+
+That was the guardrail as originally stated -- the assistant proposes, the
+rep confirms. What had been implemented gated every change by anyone, which
+protected nothing (there is no sign-in, so the approver is the typist) while
+filling a queue nothing could display. One test client reached 133 pending
+requests while still showing its first-pass answers.
+
+Filling a blank has never needed approval either: a question that was skipped
+or marked "not known yet" has a row but no value, so the first real answer to
+it is ordinary intake. Before `V21` the gate keyed off the row rather than the
+value, which meant every answer given in the AI Follow-Up chat -- whose entire
+job is filling gaps -- went to the queue and never reached the record.
+
+The `changes` endpoints expose whatever is waiting, per client, with approve
+and reject, singly or in bulk. `approve_change_request` had existed since `V9`
+and nothing ever called it; a queue with no way to see it is
+indistinguishable, from the outside, from losing the answer.
 
 `PUT` upserts the client, its profile and its answers. Which fields it
 touches is decided by **which keys are present**, not by their values: a
@@ -293,6 +308,7 @@ sql/V21__fill_blank_answers_without_approval.sql -- filling a blank is not an ed
 sql/V22__configuration_updates.sql             -- insight_config_updates: why a configuration was regenerated
 sql/V23__question_update_scope.sql             -- insight_questions.ask_on_update
 sql/V24__questionnaire_seed_questions.sql      -- re-seeds the questions, now carrying ask_on_update
+sql/V25__approval_only_for_ai_changes.sql      -- only AI_ASSIST changes queue; consultant edits apply and are audited
 ```
 
 ### Intake and update are different runs

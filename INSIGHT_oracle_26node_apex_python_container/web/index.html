@@ -317,6 +317,12 @@
   .note-tag.ai { color: var(--orange-soft); border-color: var(--orange-soft); }
   .note-actions { display: flex; gap: 6px; margin-left: auto; }
   .note-empty { font-size: 0.8rem; color: var(--ink-muted); padding: 4px 0 12px; }
+  .change-values { display: flex; gap: 10px; margin-top: 8px; font-size: 0.78rem; }
+  .change-col { flex: 1; min-width: 0; }
+  .change-col .guide-label { margin-bottom: 3px; }
+  .change-was { color: var(--ink-muted); text-decoration: line-through; word-break: break-word; }
+  .change-now { color: var(--ink-light); word-break: break-word; }
+  .hidden-section { display: none; }
 
   /* Editable answers inside the sheet. Grouped by the question's own
      eyebrow, so the form reads in the same order and language as the
@@ -430,6 +436,15 @@
     <div class="sheet-actions sheet-actions-sticky">
       <button type="button" class="btn btn-primary" id="client-info-save">Save changes</button>
       <span class="sheet-status" id="client-info-status"></span>
+    </div>
+
+    <div class="sheet-divider" id="client-info-changes-divider"></div>
+    <p class="sheet-label" id="client-info-changes-label">Waiting for review</p>
+    <p class="sheet-hint" id="client-info-changes-hint">Changes the assistant proposed. Nothing here has been applied to the record yet.</p>
+    <div id="client-info-changes"></div>
+    <div class="sheet-actions" id="client-info-changes-actions">
+      <button type="button" class="btn btn-ghost" id="client-info-approve-all">Approve all</button>
+      <span class="sheet-status" id="client-info-changes-status"></span>
     </div>
 
     <div class="sheet-divider"></div>
@@ -737,6 +752,17 @@
       addNote: async function (id, text, source) {
         return await request("POST", "/clients/" + encodeURIComponent(id) + "/notes",
           JSON.stringify({ text: text, source: source || "CONSULTANT" }));
+      },
+      listChanges: async function (id) {
+        return await request("GET", "/clients/" + encodeURIComponent(id) + "/changes");
+      },
+      decideChange: async function (id, requestId, decision) {
+        var body = { decision: decision };
+        // Omitting requestId means "every pending one" -- a backlog that can
+        // only be cleared one click at a time is a backlog nobody clears.
+        if (requestId !== undefined && requestId !== null) body.requestId = requestId;
+        return await request("PUT", "/clients/" + encodeURIComponent(id) + "/changes",
+          JSON.stringify(body));
       },
       addConfigUpdate: async function (id, summary, answersChanged) {
         return await request("POST", "/clients/" + encodeURIComponent(id) + "/updates",
@@ -1285,6 +1311,21 @@
     return { ok: true };
   }
 
+  // Only the ORDS store has an approval workflow -- record_answer is what
+  // creates a change request, and the in-memory store has no such thing.
+  // Everywhere else there is simply nothing pending, which is true rather
+  // than a stub.
+  async function listPendingChanges(id) {
+    if (!window.storage.listChanges) return [];
+    try { return (await window.storage.listChanges(id)) || []; }
+    catch (err) { return []; }
+  }
+
+  async function decidePendingChange(id, requestId, decision) {
+    if (!window.storage.decideChange) return { ok: false };
+    return await window.storage.decideChange(id, requestId, decision);
+  }
+
   async function recordConfigUpdate(id, summary, answersChanged) {
     if (window.storage.addConfigUpdate) {
       return await window.storage.addConfigUpdate(id, summary, answersChanged);
@@ -1752,6 +1793,79 @@
     renderNotes(record ? record.notes : []);
   }
 
+  // ---- changes waiting for review ----
+  // The package has been able to approve a change request since V9 and
+  // nothing ever called it, so proposals accumulated where no one could see
+  // them. A queue with no way to see it is indistinguishable, from the
+  // outside, from losing the answer.
+  //
+  // After V25 only the assistant can produce one: a consultant's edit
+  // applies directly. So an empty section here is the normal state, and the
+  // whole section hides rather than sitting there empty.
+  function renderPendingChanges(changes) {
+    var wrap = document.getElementById("client-info-changes");
+    var show = !!(changes && changes.length);
+    ["client-info-changes-divider", "client-info-changes-label", "client-info-changes-hint",
+     "client-info-changes-actions"].forEach(function (id) {
+      document.getElementById(id).classList.toggle("hidden-section", !show);
+    });
+    wrap.innerHTML = "";
+    if (!show) return;
+
+    var list = document.createElement("div");
+    list.className = "note-list";
+    changes.forEach(function (c) {
+      var row = document.createElement("div");
+      row.className = "note-row";
+      row.innerHTML =
+        '<div class="note-text">' + escapeHtml(c.questionText || c.questionId || "") + '</div>' +
+        '<div class="change-values">' +
+          '<div class="change-col"><div class="guide-label">Currently</div>' +
+            '<div class="change-was">' + escapeHtml(c.previousValue || "—") + '</div></div>' +
+          '<div class="change-col"><div class="guide-label">Proposed</div>' +
+            '<div class="change-now">' + escapeHtml(c.proposedValue || "—") + '</div></div>' +
+        '</div>' +
+        '<div class="note-meta">' +
+          '<span class="note-tag ai">Assistant</span>' +
+          '<span class="note-actions">' +
+            '<button type="button" class="icon-btn" data-approve="' + escapeHtml(String(c.id)) + '" title="Approve">✓</button>' +
+            '<button type="button" class="icon-btn danger" data-reject="' + escapeHtml(String(c.id)) + '" title="Reject">✕</button>' +
+          '</span>' +
+        '</div>';
+      list.appendChild(row);
+    });
+    wrap.appendChild(list);
+
+    wrap.querySelectorAll("[data-approve]").forEach(function (btn) {
+      btn.addEventListener("click", safe(function () { decideAndRefresh(btn.dataset.approve, "approve"); }));
+    });
+    wrap.querySelectorAll("[data-reject]").forEach(function (btn) {
+      btn.addEventListener("click", safe(function () { decideAndRefresh(btn.dataset.reject, "reject"); }));
+    });
+  }
+
+  async function decideAndRefresh(requestId, decision) {
+    var statusEl = document.getElementById("client-info-changes-status");
+    try {
+      await decidePendingChange(infoClientId, requestId, decision);
+      // Reload the record too: approving changes the answers, and leaving
+      // the fields above showing the old values would contradict what was
+      // just done.
+      var refreshed = await getClientRecord(infoClientId);
+      if (refreshed) { infoLoaded = refreshed; renderAnswerFields(refreshed); }
+      renderPendingChanges(await listPendingChanges(infoClientId));
+      statusEl.textContent = decision === "approve" ? "Applied." : "Rejected.";
+    } catch (err) {
+      statusEl.textContent = "Couldn't " + decision + " that change: " + err.message;
+    }
+  }
+
+  document.getElementById("client-info-approve-all").addEventListener("click", safe(async function () {
+    if (!infoClientId) return;
+    if (!confirm("Apply every proposed change to this client's record?")) return;
+    await decideAndRefresh(null, "approve");
+  }));
+
   // ---- configuration updates ----
   // The history of why this client's configuration was regenerated. Read
   // only: an update is a record of something that happened, so there is
@@ -1863,6 +1977,7 @@
     document.getElementById("client-info-change-summary").value = "";
     document.getElementById("client-info-update-status").textContent = "";
     renderConfigUpdates(record.configUpdates);
+    renderPendingChanges(await listPendingChanges(id));
     document.getElementById("client-info-sub").textContent =
       record.companyName ? "Editing " + record.companyName : "Details and anything else worth recording";
     document.getElementById("client-info-name").value = record.companyName === "Unnamed client" ? "" : (record.companyName || "");
