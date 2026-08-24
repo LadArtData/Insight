@@ -259,3 +259,60 @@ class ReviewRouteTests(unittest.TestCase):
             resp = self.client.post("/review", json=self.body())
         self.assertEqual(resp.status_code, 502)
         self.assertNotIn("verdict", resp.get_json())
+
+
+class ExplainTests(unittest.TestCase):
+    def setUp(self):
+        proxy.app.testing = True
+        self.client = proxy.app.test_client()
+
+    def body(self, **overrides):
+        b = {
+            "questionText": "Does the proposed segment structure cover all reporting needs?",
+            "eyebrow": "Phase 3 · GL Discovery",
+            "guidance": {"feeds": "Manage COA Structures", "why": "The spine of the implementation."},
+            "consultantQuestion": "What is a balancing segment?",
+        }
+        b.update(overrides)
+        return b
+
+    def test_requires_a_question_and_a_consultant_question(self):
+        self.assertEqual(self.client.post("/explain", json={"questionText": "x"}).status_code, 400)
+        self.assertEqual(
+            self.client.post("/explain", json={"consultantQuestion": "x"}).status_code, 400)
+
+    def test_rejects_an_oversized_consultant_question(self):
+        resp = self.client.post("/explain", json=self.body(consultantQuestion="x" * 501))
+        self.assertEqual(resp.status_code, 400)
+
+    def test_rejects_guidance_that_is_not_an_object(self):
+        resp = self.client.post("/explain", json=self.body(guidance="a string"))
+        self.assertEqual(resp.status_code, 400)
+
+    def test_returns_the_model_answer(self):
+        with mock.patch.object(
+            proxy, "call_explain",
+            return_value=json.dumps({"answer": "The balancing segment is the one Fusion balances on."}),
+        ):
+            resp = self.client.post("/explain", json=self.body())
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("balances on", resp.get_json()["answer"])
+
+    def test_prose_that_is_not_json_is_still_shown(self):
+        # Nothing here is stored or acted on -- a person reads it and moves
+        # on -- so a formatting mistake should not throw away a useful reply.
+        with mock.patch.object(proxy, "call_explain", return_value="Just prose, no JSON."):
+            resp = self.client.post("/explain", json=self.body())
+        self.assertEqual(resp.get_json()["answer"], "Just prose, no JSON.")
+
+    def test_oci_failure_is_a_502(self):
+        with mock.patch.object(proxy, "call_explain", side_effect=RuntimeError("no policy")):
+            resp = self.client.post("/explain", json=self.body())
+        self.assertEqual(resp.status_code, 502)
+
+    def test_prompt_forbids_inventing_the_client_answer(self):
+        prompt = proxy.build_explain_prompt(
+            "How many legal entities?", "Phase 1", {"feeds": "Legal Entity"}, "How many is normal?")
+        self.assertIn("Never invent the client's answer", prompt)
+        self.assertIn("Legal Entity", prompt)
+        self.assertIn("How many is normal?", prompt)

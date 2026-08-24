@@ -285,6 +285,69 @@ def parse_review_response(raw_text):
         return {"verdict": "ok", "reason": ""}
 
 
+# Coaching, not answering. The consultant is being helped to run an intake,
+# not to invent the client's answers -- a model guessing that a county
+# probably has three funds is worse than a blank, because a blank is
+# visibly missing and a guess is not.
+#
+# The panel's static guidance is passed in when there is any, so the reply
+# builds on it rather than contradicting it.
+EXPLAIN_FRAMING = """You are helping a consultant who is running an Oracle Fusion Financials \
+discovery interview, possibly for the first time. They will show you one question from the \
+questionnaire and ask you something about it.
+
+Explain, in plain language, what the question is really asking and what a good answer looks \
+like. You may explain Oracle Fusion concepts, why a setup matters, and what typically goes \
+wrong when it is decided badly.
+
+Never invent the client's answer. You do not know this client. If asked what the answer should \
+be, explain what it depends on and what to ask them instead. A guess that reads as fact is \
+worse than a blank, because a blank is visibly missing.
+
+Keep it under 150 words, and write as one professional to another -- no headings, no bullet \
+lists, no restating the question back.
+
+Respond with ONLY a JSON object, no other text, in exactly this shape:
+{"answer": "..."}"""
+
+
+def build_explain_prompt(question_text, eyebrow, guidance, consultant_question):
+    lines = [EXPLAIN_FRAMING, "", f'Questionnaire question: "{eyebrow} — {question_text}"']
+    if guidance:
+        # Only the fields the panel actually shows, so the model cannot be
+        # confused by anything editorial in the guidance file.
+        known = {k: guidance.get(k) for k in ("feeds", "why", "good", "followUp", "example")
+                 if guidance.get(k)}
+        if known:
+            lines += ["", "Reference material already shown to the consultant:",
+                      json.dumps(known, indent=1)]
+    lines += ["", f'The consultant asks: "{consultant_question}"']
+    return "\n".join(lines)
+
+
+def parse_explain_response(raw_text):
+    """Falls back to the raw text when the model does not return JSON.
+
+    Unlike the gap chat, nothing here is stored or acted on -- it is read by
+    a person and then discarded. A prose reply is still useful to them, so
+    showing it beats discarding it over a formatting mistake.
+    """
+    try:
+        parsed = json.loads(raw_text.strip())
+        answer = parsed.get("answer")
+        if isinstance(answer, str) and answer.strip():
+            return {"answer": answer}
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        pass
+    text = (raw_text or "").strip()
+    return {"answer": text} if text else {"answer": "No explanation came back. Try rephrasing."}
+
+
+def call_explain(question_text, eyebrow, guidance, consultant_question):
+    return invoke_model(
+        build_explain_prompt(question_text, eyebrow, guidance, consultant_question))
+
+
 def call_llm(gap_context, user_message):
     """
     The one function that actually talks to OCI. Kept separate from the
@@ -403,6 +466,33 @@ def review():
         return jsonify({"error": "The reviewer is temporarily unavailable."}), 502
 
     return jsonify(parse_review_response(raw_text))
+
+
+@app.route("/explain", methods=["POST"])
+def explain():
+    body = request.get_json(silent=True)
+    if not body:
+        return jsonify({"error": "Request body must be JSON"}), 400
+
+    question_text = body.get("questionText")
+    consultant_question = body.get("consultantQuestion")
+    if not question_text or not consultant_question:
+        return jsonify({"error": "questionText and consultantQuestion are required"}), 400
+    if len(consultant_question) > 500 or len(question_text) > 1000:
+        return jsonify({"error": "questionText or consultantQuestion is too long"}), 400
+
+    guidance = body.get("guidance")
+    if guidance is not None and not isinstance(guidance, dict):
+        return jsonify({"error": "guidance must be an object"}), 400
+
+    try:
+        raw_text = call_explain(
+            question_text, body.get("eyebrow") or "", guidance, consultant_question)
+    except Exception as exc:  # noqa: BLE001 -- any OCI/network failure
+        app.logger.error("OCI explain call failed: %s", exc)
+        return jsonify({"error": "The assistant is temporarily unavailable."}), 502
+
+    return jsonify(parse_explain_response(raw_text))
 
 
 if __name__ == "__main__":

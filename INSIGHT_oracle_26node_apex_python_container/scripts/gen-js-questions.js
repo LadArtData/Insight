@@ -1,10 +1,17 @@
 #!/usr/bin/env node
 "use strict";
 
-// Generates the ALL_QUESTIONS array literal from questions/insight_questions.json
-// and splices it into INSIGHT_app.html (repo root) between the
-// GENERATED:QUESTIONS marker comments, then copies the result to
-// web/index.html so the two stay in sync the same way they always have.
+// Generates two blocks from questions/ and splices them into
+// INSIGHT_app.html (repo root) between marker comments, then copies the
+// result to web/index.html so the two stay in sync the same way they always
+// have:
+//
+//   GENERATED:QUESTIONS   ALL_QUESTIONS, from insight_questions.json
+//   GENERATED:GUIDANCE    QUESTION_GUIDANCE, from insight_question_guidance.json
+//
+// The guidance is generated INTO the page rather than fetched at runtime so
+// the app stays a single self-contained file -- it still works opened
+// straight off disk, with no server and no second request.
 //
 // Run with --check instead of writing to fail (exit 1) if regenerating
 // would change either file -- this is what ci.yml uses to catch the
@@ -15,11 +22,15 @@ const path = require("node:path");
 
 const ROOT = path.join(__dirname, "..");
 const JSON_PATH = path.join(ROOT, "questions", "insight_questions.json");
+const GUIDANCE_PATH = path.join(ROOT, "questions", "insight_question_guidance.json");
 const APP_HTML_PATH = path.join(ROOT, "..", "INSIGHT_app.html");
 const WEB_HTML_PATH = path.join(ROOT, "web", "index.html");
 
 const START_MARKER = "  // GENERATED:QUESTIONS:START -- do not hand-edit; regenerate via\n  // scripts/gen-js-questions.js from questions/insight_questions.json\n  var ALL_QUESTIONS = [\n";
 const END_MARKER = "\n  ];\n  // GENERATED:QUESTIONS:END\n";
+
+const G_START_MARKER = "  // GENERATED:GUIDANCE:START -- do not hand-edit; regenerate via\n  // scripts/gen-js-questions.js from questions/insight_question_guidance.json\n  var QUESTION_GUIDANCE = ";
+const G_END_MARKER = ";\n  // GENERATED:GUIDANCE:END\n";
 
 function jsStringLiteral(s) {
   // Matches the existing file's convention: single-quoted, only escaping
@@ -47,6 +58,17 @@ function renderQuestion(q) {
   return "    { " + parts.join(", ") + " },";
 }
 
+function renderGuidance() {
+  const raw = JSON.parse(fs.readFileSync(GUIDANCE_PATH, "utf8"));
+  // _about documents the file for whoever edits it. It is not shipped: the
+  // page has no use for it and it would only bloat every download.
+  const entries = Object.keys(raw)
+    .filter((k) => !k.startsWith("_"))
+    .sort()
+    .map((k) => "    " + JSON.stringify(k) + ": " + JSON.stringify(raw[k]));
+  return "{\n" + entries.join(",\n") + "\n  }";
+}
+
 function main() {
   const check = process.argv.includes("--check");
   const questions = JSON.parse(fs.readFileSync(JSON_PATH, "utf8"));
@@ -60,12 +82,19 @@ function main() {
     console.error("GENERATED:QUESTIONS markers not found in " + APP_HTML_PATH);
     process.exit(1);
   }
-  const updated = current.replace(markerRe, block);
+  let updated = current.replace(markerRe, block);
+
+  const gMarkerRe = /  \/\/ GENERATED:GUIDANCE:START[\s\S]*?\/\/ GENERATED:GUIDANCE:END\n/;
+  if (!gMarkerRe.test(updated)) {
+    console.error("GENERATED:GUIDANCE markers not found in " + APP_HTML_PATH);
+    process.exit(1);
+  }
+  updated = updated.replace(gMarkerRe, G_START_MARKER + renderGuidance() + G_END_MARKER);
 
   if (check) {
     let dirty = false;
     if (updated !== current) {
-      console.error("INSIGHT_app.html is out of sync with questions/insight_questions.json");
+      console.error("INSIGHT_app.html is out of sync with questions/");
       dirty = true;
     }
     const webCurrent = fs.readFileSync(WEB_HTML_PATH, "utf8");
@@ -78,7 +107,7 @@ function main() {
 
   fs.writeFileSync(APP_HTML_PATH, updated);
   fs.writeFileSync(WEB_HTML_PATH, updated);
-  console.log("Regenerated INSIGHT_app.html and web/index.html from questions/insight_questions.json");
+  console.log("Regenerated INSIGHT_app.html and web/index.html from questions/");
 }
 
 main();

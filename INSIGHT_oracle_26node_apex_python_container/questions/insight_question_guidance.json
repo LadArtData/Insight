@@ -1,0 +1,251 @@
+{
+  "_about": {
+    "purpose": "Per-question coaching for a consultant running an intake for the first time. Shown in the guidance panel beside the question.",
+    "fields": {
+      "feeds": "The Oracle Fusion setup task this answer ends up in. Names match the OCWI GL Configuration Workbook tabs.",
+      "why": "Why the question is asked, in terms of what goes wrong without it.",
+      "good": "What a usable answer contains. Not a script -- the shape to listen for.",
+      "followUp": "What to ask when the client's first answer is too vague to configure from.",
+      "example": "A real value from the OCWI (Outagamie County) workbook, where one exists."
+    },
+    "status": "DRAFT -- written from the OCWI workbook and needs a subject-matter review before consultants rely on it. GL and the qualifiers are grounded in that workbook; AP, AR, Fixed Assets and Cash Management have no workbook here, so they are deliberately absent rather than written from memory."
+  },
+
+  "QUAL-GL": {
+    "feeds": "Ledger",
+    "why": "Every Fusion Financials implementation has a General Ledger. This is here to state the foundation explicitly, not to decide it.",
+    "good": "Always yes. The button is locked.",
+    "followUp": "None needed."
+  },
+  "QUAL-AP": {
+    "feeds": "Module scope",
+    "why": "Decides whether the whole Payables discovery section is asked. Getting this wrong either wastes an hour of the client's time or misses a module entirely.",
+    "good": "Yes if they pay suppliers on invoices. Watch for clients who say no because a parent organisation pays for them -- that is still a yes if the invoices are recorded here.",
+    "followUp": "Who cuts the cheques today, and does the accounting for those payments happen in your books or someone else's?"
+  },
+  "QUAL-AR": {
+    "feeds": "Module scope",
+    "why": "Decides whether Receivables discovery is asked.",
+    "good": "Yes if they issue invoices and chase payment. Public sector clients often say no while running permit fees, utility billing or grants receivable -- all of which are AR.",
+    "followUp": "Does anyone owe you money at month end, and how do you track who and how much?"
+  },
+  "QUAL-FA": {
+    "feeds": "Module scope",
+    "why": "Decides whether Fixed Assets discovery is asked.",
+    "good": "Yes if they hold anything capitalised and depreciate it. Almost every county, city and utility does.",
+    "followUp": "Where does your capital asset listing live today, and who calculates depreciation for the financial statements?"
+  },
+  "QUAL-CM": {
+    "feeds": "Module scope",
+    "why": "Decides whether Cash Management discovery is asked.",
+    "good": "Yes if bank statements are reconciled in the system rather than a spreadsheet.",
+    "followUp": "How does a bank statement get reconciled today, and does anyone need to see a cash position across accounts?"
+  },
+  "QUAL-MULTI": {
+    "feeds": "Ledger, InterCompany Balancing Rules",
+    "why": "Consolidation across entities drives whether intercompany balancing, ledger sets and secondary ledgers are needed. A yes here reshapes the GL design.",
+    "good": "Yes if more than one legal entity or fund has to report together.",
+    "followUp": "When you produce a combined financial statement, what gets combined, and does anything have to eliminate between them?",
+    "example": "OCWI runs one primary ledger with intercompany accounting available but not enabled."
+  },
+
+  "GL-001": {
+    "feeds": "Legal Entity",
+    "why": "Fusion needs one legal entity per entity that files or is taxed separately, each with an address and an identifier. Getting this list wrong is expensive to unwind because ledgers and balancing segments hang off it.",
+    "good": "The full list, and for each: registered legal name, the tax identifier, the registered address, and whether it employs people. Not a single paragraph -- the workbook wants one row per entity across twenty-one columns.",
+    "followUp": "Which of these files its own tax return? Which has employees on its own payroll? Is the mailing address the same as the registered address?",
+    "example": "COUNTY OF OUTAGAMIE · EIN 39-6005724 · 320 S. Walnut Street, Appleton WI 54911 · payroll statutory unit yes · legal employer yes · 1099 reporting entity yes."
+  },
+  "GL-002": {
+    "feeds": "Ledger, Currency",
+    "why": "A ledger's currency and accounting method are set once and cannot be changed afterwards without a new ledger. This is the single most expensive answer in the deck to get wrong.",
+    "good": "One primary currency, whether any transactions occur in other currencies, and the accounting basis -- accrual, modified accrual, or cash. Public sector clients often need encumbrance accounting alongside accrual.",
+    "followUp": "Do you ever pay or invoice in another currency? Do purchase orders reserve budget before the invoice arrives?",
+    "example": "USD, accounting method \"OCWI Accrual with Encumbrances\"."
+  },
+  "GL-003": {
+    "feeds": "Nothing in the GL workbook -- this belongs to Fixed Assets or HCM",
+    "why": "Flagged for review: there is no location setup in General Ledger. Ask it if the client raises location tracking, but do not expect it to feed a GL setup task.",
+    "good": "Note the answer and carry it to the Fixed Assets discussion.",
+    "followUp": "Are you tracking locations for assets, for people, or for accounting?"
+  },
+  "GL-004": {
+    "feeds": "Manage COA Value Sets, Manage COA Structures",
+    "why": "The chart of accounts structure is the spine of the whole implementation. Segments, their order, and their lengths cannot be changed after go-live without a re-implementation.",
+    "good": "The list of segments in order, what each one means to the client, and the character length of each. Also which segment is the balancing segment and which is the natural account -- Fusion requires both to be designated.",
+    "followUp": "Walk me through an account number as you use it today, and tell me what each part means. Which part identifies the entity that has to balance?",
+    "example": "OCWI uses six segments -- Fund(5) · Cost Center(6) · Program(5) · Natural Account(6) · Activity(7) · Future 1(7) -- delimiter \".\", giving 11010.000000.00000.350100.0000000.0000000."
+  },
+  "GL-005": {
+    "feeds": "Manage COA Structure Instances, Manage Account Combinations",
+    "why": "Dynamic insertion lets users create account combinations as they post. Turning it off means Finance controls every combination and users hit errors instead of creating bad accounts.",
+    "good": "A clear preference, and the reason behind it. Tight-control clients say no; clients with many new projects say yes.",
+    "followUp": "Today, if someone needs a new account code, who creates it and how long does it take?"
+  },
+  "GL-006": {
+    "feeds": "Cross-Validation Rules",
+    "why": "Cross-validation rules block combinations that should never exist. Without them the chart fills with accounts nobody meant to create, and cleaning up afterwards means reposting.",
+    "good": "Specific pairs -- this fund can only be used with these natural accounts, this cost centre never posts to capital accounts.",
+    "followUp": "Which combinations would be obviously wrong if you saw them on a report? What has gone wrong before?"
+  },
+  "GL-007": {
+    "feeds": "Manage COA Segment Values, Segment Hierarchies",
+    "why": "New funds and programs appear constantly, especially with grants. Who approves a new value and how long it takes determines whether the client can operate the system themselves.",
+    "good": "The approval path, the people in it, and whether a board or council vote is involved.",
+    "followUp": "When you were awarded your last new grant, what had to happen before you could charge to it?"
+  },
+  "GL-008": {
+    "feeds": "Manage Accounting Calendar",
+    "why": "The calendar is created once and periods cannot be reshaped afterwards. It also has to start early enough to hold whatever history is being converted.",
+    "good": "Fiscal year start and end months, period frequency, and how far back the calendar must go for conversion.",
+    "followUp": "What is your fiscal year? Are periods calendar months, or something like 4-4-5?",
+    "example": "OCWI: monthly, calendar-year format MMMYYYY, first period JAN-2027, calendar built back to 1951 to hold converted history."
+  },
+  "GL-009": {
+    "feeds": "Manage Accounting Calendar",
+    "why": "Adjusting periods let year-end entries sit outside December so they do not distort the last month. Adding one later means rebuilding the calendar.",
+    "good": "None, one, or two. Two is common where internal close and external audit adjustments are kept apart.",
+    "followUp": "Where do audit adjustments get posted today, and can you tell them apart from December's normal activity?",
+    "example": "OCWI: twice at year end."
+  },
+  "GL-010": {
+    "feeds": "Ledger",
+    "why": "Determines how many future periods can be open at once and how reopening a closed period is handled. Loose settings mean entries land in the wrong month.",
+    "good": "How many periods are open at once, who can reopen a closed one, and whether prior-period entries need to notify anyone.",
+    "followUp": "If someone finds a missing invoice a month after close, what happens?"
+  },
+  "GL-011": {
+    "feeds": "Journal Categories",
+    "why": "Journal categories are how journals are grouped, reported and approved. Clients usually have more categories in practice than they first list.",
+    "good": "The recurring kinds of manual journal by name -- accruals, reclasses, interfund transfers, year-end carryover, conversion.",
+    "followUp": "Pull up last month's journal listing -- what kinds are in there?",
+    "example": "OCWI: Conversion, YE Carryover, and the seeded categories."
+  },
+  "GL-012": {
+    "feeds": "Journal Approval, Ledger",
+    "why": "Journal approval rules are workflow, and workflow needs named groups and thresholds, not a description of the culture.",
+    "good": "Dollar thresholds, who approves at each level, and any department that follows different rules.",
+    "followUp": "Who signs off on a $500 journal? A $50,000 one? Is anyone allowed to post without review?",
+    "example": "OCWI runs a Journal Approval workflow with approval groups by function."
+  },
+  "GL-013": {
+    "feeds": "Auto Post Criteria Sets",
+    "why": "AutoPost decides which subledger journals post without a human. Too broad and errors reach the ledger unreviewed; too narrow and close slows to a crawl.",
+    "good": "Which sources post automatically, which need review first, and on what schedule.",
+    "followUp": "Does anyone look at Payables journals before they hit the GL, or do you trust the subledger?",
+    "example": "OCWI: one criteria set, All Journals, all sources and categories, priority 1."
+  },
+  "GL-014": {
+    "feeds": "Journal Reversal Criteria Sets",
+    "why": "Accruals that are not reversed become permanent overstatements. The reversal method and timing are configuration, not a preference.",
+    "good": "Which categories reverse, when they reverse, and whether reversal switches debit and credit or changes the sign.",
+    "followUp": "When you accrue at month end, what makes the accrual go away next month?",
+    "example": "OCWI: Accrual category, no default period, switch debit or credit, reverse automatically."
+  },
+  "GL-015": {
+    "feeds": "Control Budgets",
+    "why": "Budget versions are separate control budgets in Fusion. Each one that has to be tracked is its own setup.",
+    "good": "The named stages the client actually reports on -- proposed, adopted, amended -- and which of them the system must hold.",
+    "followUp": "Which budget number appears on your published reports, and does it change during the year?",
+    "example": "OCWI runs three: Adopted-Monthly Track, Budget, and Adopted BC."
+  },
+  "GL-016": {
+    "feeds": "Control Budgets",
+    "why": "The control level decides where a transaction is checked against budget. Too fine and everything fails; too coarse and overspending is invisible.",
+    "good": "The segment combination that spending is controlled at -- fund, or fund and department, or account level.",
+    "followUp": "If a department overspends one line but is under overall, should that transaction stop?"
+  },
+  "GL-017": {
+    "feeds": "Control Budgets",
+    "why": "Fusion offers three levels, not two, and the third is the one most clients start with.",
+    "good": "Per budget or per account group: Absolute (block), Advisory (warn), or Track (record only). Watch for clients who describe Track and call it Advisory.",
+    "followUp": "Should the system stop the transaction, warn and let it through, or just record it for reporting?",
+    "example": "OCWI Budget runs at Track."
+  },
+  "GL-018": {
+    "feeds": "Control Budgets",
+    "why": "Someone has to hold override authority or every overspend becomes an emergency. Fusion names a budget manager per control budget.",
+    "good": "A named role or person per budget.",
+    "followUp": "Who can authorise spending over budget today, and is that in writing anywhere?",
+    "example": "OCWI names a budget manager on each control budget."
+  },
+  "GL-019": {
+    "feeds": "Allocation",
+    "why": "Allocations move shared costs to the departments that consumed them. Missing one means a department's true cost is understated all year.",
+    "good": "The named pools -- IT, facilities, insurance, administration -- and who currently receives each.",
+    "followUp": "Which costs get spread across departments at month end, and who does that today?"
+  },
+  "GL-020": {
+    "feeds": "Allocation",
+    "why": "The driver is the formula. Without it the allocation cannot be built, only described.",
+    "good": "Per pool: the basis. Fixed percentages, headcount, square footage, direct expense, or a statistical balance the system has to hold.",
+    "followUp": "For IT costs specifically, what number do you divide by -- and where does that number come from?"
+  },
+  "GL-021": {
+    "feeds": "Allocation",
+    "why": "Determines whether allocations are part of the close checklist or run on a schedule, which changes who owns them.",
+    "good": "When they run and who triggers them.",
+    "followUp": "Does the allocation run before or after you close the subledgers?"
+  },
+  "GL-022": {
+    "feeds": "Descriptive Flexfields, Segment Hierarchies",
+    "why": "Federal and state grant reporting needs cost classification that the natural account alone cannot carry. This is usually a flexfield, not a segment.",
+    "good": "How allowable and unallowable costs are separated today, and which awards need separate reporting.",
+    "followUp": "When you file a federal report, where do the numbers come from, and what do you have to exclude?"
+  },
+  "GL-023": {
+    "feeds": "Descriptive Flexfields, DFF Values",
+    "why": "Each reporting code becomes a descriptive flexfield with its own value set. They have to be identified during design, not discovered during a filing deadline.",
+    "good": "The named codes and where each is required -- on the account, on the journal, or on the transaction.",
+    "followUp": "What codes appear on your state or federal submissions that are not part of your account number?",
+    "example": "OCWI: State Reporting Code, GEARS Profile ID, GEARS Profile Type, GEARS Agency Code, SPARC Code."
+  },
+  "GL-024": {
+    "feeds": "Conversion scope",
+    "why": "Detailed transaction history is the most expensive thing to convert and the least used afterwards. Asked separately from balances because clients answer them differently once they see the cost.",
+    "good": "A number of years, and what it will be used for.",
+    "followUp": "When someone looks up a transaction from three years ago, how often does that happen and could they use the legacy system for it?"
+  },
+  "GL-024B": {
+    "feeds": "Conversion scope",
+    "why": "Summary balances are cheap to convert compared with transactions and cover most reporting needs.",
+    "good": "A number of years.",
+    "followUp": "How many years of comparatives appear in your published statements?"
+  },
+  "GL-024C": {
+    "feeds": "Conversion scope, Control Budgets",
+    "why": "Budget history has to line up with the budget calendar and the control budgets being created.",
+    "good": "A number of years.",
+    "followUp": "Do your budget reports show prior-year budget figures?",
+    "example": "OCWI's control budget spans FY2020 to FY2029."
+  },
+  "GL-025": {
+    "feeds": "Journal Sources",
+    "why": "Every external system feeding the ledger becomes a journal source with its own rules about approval and freezing.",
+    "good": "The systems by name, what they send, and how often.",
+    "followUp": "What lands in your general ledger that nobody typed in?",
+    "example": "OCWI converted from JDE and holds a Conversion journal source."
+  },
+  "GL-026": {
+    "feeds": "Reporting",
+    "why": "Reports are what the client sees at go-live. A report they expect and do not get is what a failed implementation feels like from their side.",
+    "good": "Named statements and filings, with who receives each and when.",
+    "followUp": "What do you have to publish, to whom, and by what date?"
+  },
+
+  "INTAKE-001": { "why": "Names the client record and appears on everything produced for them.", "good": "Legal name, plus what people actually call them." },
+  "INTAKE-002": { "why": "Who to call. Everything else in the engagement routes through this person.", "good": "A full name." },
+  "INTAKE-002B": { "why": "Title tells you what they can decide without asking anyone.", "good": "A job title." },
+  "INTAKE-002C": { "why": "Where the workbook and follow-ups get sent.", "good": "An email address." },
+  "INTAKE-002D": { "why": "For the questions that cannot wait for email.", "good": "A phone number." },
+  "INTAKE-003": { "why": "Discovery stalls when the person who knows the answer was never in the room.", "good": "Names and roles -- CFO, Controller, IT, and whoever owns the budget." },
+  "INTAKE-004": { "why": "Industry and size set expectations for complexity before you ask a single GL question.", "good": "Sector, and headcount or revenue." },
+  "INTAKE-005": { "why": "Legal entity count drives ledger and balancing segment design more than any other single number.", "good": "A count. If it is more than a handful, expect intercompany to matter.", "followUp": "How many of those file separately?" },
+  "INTAKE-005B": { "why": "Subsidiaries may or may not be separate legal entities -- the distinction changes the design.", "good": "A count." },
+  "INTAKE-005C": { "why": "Sites hint at whether location tracking and asset distribution matter.", "good": "A count." },
+  "INTAKE-006": { "why": "The legacy system determines conversion effort and what the client will compare Fusion against.", "good": "System name and version, and whether support is ending.", "followUp": "Is there a date by which you lose support?" },
+  "INTAKE-007": { "why": "Every integration is scope. Finding one late is how timelines slip.", "good": "Systems by name, and which direction data flows." },
+  "INTAKE-008": { "why": "The trigger tells you what success looks like to them, and what the real deadline is.", "good": "The event or pressure that started this." },
+  "INTAKE-009": { "why": "The pain point is what they will judge the project by, whether or not it is in scope.", "good": "One concrete thing that hurts today." },
+  "INTAKE-010": { "why": "A fiscal-year or audit deadline changes sequencing more than any technical constraint.", "good": "A date, and what is driving it.", "followUp": "What happens if that date is missed?" }
+}

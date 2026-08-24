@@ -1999,3 +1999,130 @@ test("update run: finishing returns to the configuration update section", async 
   assert.match(byId(win, "client-info-update-status").textContent, /say what changed/i);
   win.close();
 });
+
+// ---------------------------------------------------------------------------
+// The guidance panel. Reference material first, model second: a consultant
+// running their first intake needs to know what a question means far more
+// often than they need something generated.
+// ---------------------------------------------------------------------------
+
+test("guidance: the panel explains the question on screen", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await wait(30);
+
+  const panel = byId(win, "guide");
+  assert.equal(panel.classList.contains("empty"), false, "INTAKE-001 has guidance");
+  assert.match(byId(win, "guide-body").textContent, /Why it is asked/);
+  win.close();
+});
+
+test("guidance: it carries the workbook's own numbers, not a paraphrase", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await fillIntake(win);
+  await answerQualifiers(win);
+  // Walk to GL-004, the chart of accounts structure question.
+  for (let i = 0; i < 40; i++) {
+    if (/segment structure/i.test(byId(win, "q-text").textContent)) break;
+    const yn = win.document.querySelectorAll(".yn-btn");
+    if (yn.length) clickYn(win, "Yes");
+    else fillValid(win, "A considered answer for this question.");
+    await clickNext(win);
+  }
+  const text = byId(win, "guide-body").textContent;
+  assert.match(text, /Fund\(5\)/, "the real segment lengths from the workbook");
+  assert.match(text, /11010\.000000/, "and a real account combination as the worked example");
+  win.close();
+});
+
+test("guidance: a question with no guidance hides the panel rather than showing an empty box", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await fillIntake(win);
+  // AP is in scope, and AP has no guidance yet -- there is no configuration
+  // workbook for it, and invented Fusion advice is what a first-timer
+  // cannot evaluate.
+  await answerQualifiers(win, { AP: "Yes" });
+  for (let i = 0; i < 40; i++) {
+    if (/Phase 3 · AP/.test(byId(win, "q-eyebrow").textContent)) break;
+    const yn = win.document.querySelectorAll(".yn-btn");
+    if (yn.length) clickYn(win, "Yes");
+    else fillValid(win, "A considered answer for this question.");
+    await clickNext(win);
+  }
+  assert.match(byId(win, "q-eyebrow").textContent, /Phase 3 · AP/);
+  assert.ok(byId(win, "guide").classList.contains("empty"));
+  win.close();
+});
+
+test("guidance: the panel collapses and stays collapsed across questions", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await wait(30);
+
+  byId(win, "guide-toggle").click();
+  assert.ok(byId(win, "guide").classList.contains("collapsed"));
+  fillValid(win, "Meridian County Government, known as Meridian.");
+  await clickNext(win);
+  await wait(30);
+  assert.ok(byId(win, "guide").classList.contains("collapsed"),
+    "a consultant who hid it should not have to hide it again every question");
+  win.close();
+});
+
+test("guidance: asking the assistant sends the question and the reference material", async () => {
+  const sent = [];
+  const dom = await bootApp((win) => {
+    win.fetch = (url, opts) => {
+      if (String(url).includes("/api/explain")) {
+        sent.push(JSON.parse(opts.body));
+        return Promise.resolve({
+          ok: true, status: 200,
+          json: () => Promise.resolve({ answer: "A balancing segment is where Fusion enforces balance." }),
+        });
+      }
+      return Promise.reject(new Error("offline"));
+    };
+  });
+  const win = dom.window;
+  await wait(40);
+  byId(win, "btn-new-client").click();
+  await wait(30);
+
+  byId(win, "guide-ask-input").value = "What is a balancing segment?";
+  byId(win, "guide-ask-send").click();
+  await wait(80);
+
+  assert.equal(sent.length, 1);
+  assert.ok(sent[0].questionText, "the questionnaire question travels");
+  assert.ok(sent[0].guidance, "so does the reference material, so the reply builds on it");
+  assert.match(byId(win, "guide-answer").textContent, /enforces balance/);
+  win.close();
+});
+
+test("guidance: an unreachable assistant says so and leaves the reference material standing", async () => {
+  const dom = await bootApp((win) => {
+    win.fetch = (url) => String(url).includes("/api/explain")
+      ? Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({}) })
+      : Promise.reject(new Error("offline"));
+  });
+  const win = dom.window;
+  await wait(40);
+  byId(win, "btn-new-client").click();
+  await wait(30);
+
+  byId(win, "guide-ask-input").value = "What is a balancing segment?";
+  byId(win, "guide-ask-send").click();
+  await wait(80);
+
+  const answer = byId(win, "guide-answer").textContent;
+  assert.match(answer, /isn't reachable/i, "and says which of the two it is");
+  assert.match(byId(win, "guide-body").textContent, /Why it is asked/,
+    "the reference material does not depend on the model");
+  win.close();
+});

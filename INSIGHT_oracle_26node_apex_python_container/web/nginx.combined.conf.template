@@ -91,6 +91,16 @@ server {
     # purpose: the front end falls back to its own check when the reviewer
     # does not answer in time, and waiting four minutes to be told nothing
     # would be worse than deciding locally in eight seconds.
+    # Coaching for whoever is running the intake. Generous timeout: a
+    # person asked a question and is reading the answer when it lands, so
+    # waiting is expected here in a way it is not on the Next button.
+    location /api/explain {
+        proxy_pass http://127.0.0.1:5001/explain;
+        proxy_set_header Host $host;
+        proxy_read_timeout 60s;
+        client_max_body_size 16k;
+    }
+
     location /api/review {
         proxy_pass http://127.0.0.1:5001/review;
         proxy_set_header Host $host;

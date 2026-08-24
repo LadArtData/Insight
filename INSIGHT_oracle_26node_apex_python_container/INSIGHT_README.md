@@ -428,6 +428,28 @@ that instance's Security List/NSG (separate from 1521's rule) or the page
 won't load from outside. `web/index.html` is a plain copy, not a symlink --
 if you edit the app UI, copy the updated file into `web/index.html` too.
 
+## Guidance panel
+`questions/insight_question_guidance.json` holds per-question coaching for
+whoever is running the intake: what Oracle setup the answer feeds, why the
+question is asked, what a usable answer contains, what to ask when the first
+answer is too vague, and a worked example. It is generated into the page by
+`scripts/gen-js-questions.js` alongside `ALL_QUESTIONS`, so the app stays a
+single self-contained file that still works opened off disk.
+
+Reference material first, model second. Someone running their first intake
+needs to know what a question means far more often than they need something
+generated, and reference data has no latency and cannot be unavailable. The
+"Ask the assistant" box underneath is for the question the reference did not
+answer; it calls `/api/explain`, and when that is unreachable it says so
+while everything above it keeps working.
+
+The guidance is a **draft pending subject-matter review**, and deliberately
+covers only Client Intake, the qualifiers and General Ledger — the areas the
+OCWI configuration workbook grounds. AP, AR, Fixed Assets and Cash Management
+have no entries rather than invented ones: plausible-sounding Fusion advice
+is precisely what a first-timer has no way to evaluate. A question with no
+guidance hides the panel instead of showing an empty box.
+
 ## AI assistant endpoint (`/api/chat`)
 The combined image runs a second process alongside nginx:
 `python/INSIGHT_chat_proxy.py`, a small service in front of OCI Generative
@@ -438,6 +460,11 @@ reason the ORDS `api_key` is attached server-side.
 The entrypoint supervises it: if it exits it is restarted with backoff, and
 if it cannot start at all the site still serves and `/api/chat` returns
 502. Set `CHAT_PROXY_DISABLE=1` to skip it entirely.
+
+Three routes share it: `/chat` (gap follow-up), `/review` (is this answer
+usable) and `/explain` (coach the consultant). Their nginx timeouts differ
+by who is waiting — 8s for review, since a person is held at the Next
+button; 60s for explain, where they asked and are reading; 240s for chat.
 
 Authentication is chosen at startup (`OCI_AUTH_METHOD`, default `auto`):
 a `~/.oci/config` when one exists, otherwise **instance principals**, which
