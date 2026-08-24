@@ -345,6 +345,12 @@
     font-family: inherit; font-size: 0.82rem; font-weight: 600;
   }
   .qf-yn button.selected { border-color: var(--orange); color: var(--orange-soft); background: rgba(255,106,26,0.1); }
+  .q-mode-note {
+    display: none; font-size: 0.72rem; font-weight: 600; color: var(--orange-soft);
+    background: rgba(255,106,26,0.08); border: 1px solid rgba(255,106,26,0.35);
+    border-radius: 999px; padding: 6px 14px; margin: 0 0 14px; align-self: flex-start;
+  }
+  .q-mode-note.show { display: inline-block; }
   .sheet-actions-sticky {
     position: sticky; bottom: 0; background: var(--navy-card);
     padding: 12px 0 4px; margin-top: 0;
@@ -394,9 +400,10 @@
     <div id="client-info-updates"></div>
     <textarea class="sheet-input" id="client-info-change-summary" rows="3" maxlength="2000" placeholder="What changed since the last configuration?"></textarea>
     <div class="sheet-actions">
+      <button type="button" class="btn btn-ghost" id="client-info-start-update">Walk through the questions</button>
       <button type="button" class="btn btn-primary" id="client-info-regenerate">Record update &amp; export configuration</button>
-      <span class="sheet-status" id="client-info-update-status"></span>
     </div>
+    <p class="sheet-status" id="client-info-update-status"></p>
 
     <div class="sheet-divider"></div>
     <p class="sheet-label">Additional information</p>
@@ -475,6 +482,7 @@
         <div class="q-progress-track"><div class="q-progress-fill" id="q-progress-fill"></div></div>
         <div class="q-progress-label" id="q-progress-label">1 / 6</div>
       </div>
+      <p class="q-mode-note" id="q-mode-note"></p>
       <p class="q-eyebrow" id="q-eyebrow">Scope Qualifier · Module Scoping</p>
       <p class="q-text" id="q-text">Loading question…</p>
       <div id="q-answer-area"></div>
@@ -941,21 +949,21 @@
   // GENERATED:QUESTIONS:START -- do not hand-edit; regenerate via
   // scripts/gen-js-questions.js from questions/insight_questions.json
   var ALL_QUESTIONS = [
-    { id: "INTAKE-001", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the client\'s full legal company name, and what should we call them informally?', type: "text", answer: null, required: true },
-    { id: "INTAKE-002", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s full name?', type: "text", answer: null, required: true },
-    { id: "INTAKE-002B", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s job title or role?', type: "text", answer: null, required: true },
-    { id: "INTAKE-002C", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s email address?', type: "email", answer: null, required: true },
-    { id: "INTAKE-002D", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s phone number?', type: "phone", answer: null, required: false },
-    { id: "INTAKE-003", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'Who else should be considered a key stakeholder or decision-maker (e.g., CFO, Controller, IT Director)?', type: "text", answer: null, required: false },
-    { id: "INTAKE-004", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'What industry/sector is the client in, and approximately how large are they (employee count and/or annual revenue)?', type: "text", answer: null, required: true },
+    { id: "INTAKE-001", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the client\'s full legal company name, and what should we call them informally?', type: "text", answer: null, required: true, intakeOnly: true },
+    { id: "INTAKE-002", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s full name?', type: "text", answer: null, required: true, intakeOnly: true },
+    { id: "INTAKE-002B", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s job title or role?', type: "text", answer: null, required: true, intakeOnly: true },
+    { id: "INTAKE-002C", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s email address?', type: "email", answer: null, required: true, intakeOnly: true },
+    { id: "INTAKE-002D", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s phone number?', type: "phone", answer: null, required: false, intakeOnly: true },
+    { id: "INTAKE-003", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'Who else should be considered a key stakeholder or decision-maker (e.g., CFO, Controller, IT Director)?', type: "text", answer: null, required: false, intakeOnly: true },
+    { id: "INTAKE-004", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'What industry/sector is the client in, and approximately how large are they (employee count and/or annual revenue)?', type: "text", answer: null, required: true, intakeOnly: true },
     { id: "INTAKE-005", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'How many legal entities does the client operate?', type: "number", answer: null, required: false },
     { id: "INTAKE-005B", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'How many subsidiaries does the client operate?', type: "number", answer: null, required: false },
     { id: "INTAKE-005C", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'How many physical locations or sites does the client operate?', type: "number", answer: null, required: false },
-    { id: "INTAKE-006", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Current Environment', text: 'What ERP or financial system(s) is the client currently using, and are they still under contract/support?', type: "text", answer: null, required: true },
+    { id: "INTAKE-006", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Current Environment', text: 'What ERP or financial system(s) is the client currently using, and are they still under contract/support?', type: "text", answer: null, required: true, intakeOnly: true },
     { id: "INTAKE-007", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Current Environment', text: 'Are there other systems already in place that will need to integrate with Oracle Fusion (e.g., payroll, procurement, banking, CRM)?', type: "text", answer: null, required: false },
-    { id: "INTAKE-008", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Reason for Engagement', text: 'What prompted the client to reach out now (e.g., system end-of-life, growth, compliance, M&A, dissatisfaction with current provider)?', type: "text", answer: null, required: true },
-    { id: "INTAKE-009", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Reason for Engagement', text: 'What does the client consider their biggest pain point today?', type: "text", answer: null, required: false },
-    { id: "INTAKE-010", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Timeline & Constraints', text: 'Is there a target go-live date or an external deadline driving the timeline (e.g., fiscal year-end, contract expiration)?', type: "text", answer: null, required: false },
+    { id: "INTAKE-008", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Reason for Engagement', text: 'What prompted the client to reach out now (e.g., system end-of-life, growth, compliance, M&A, dissatisfaction with current provider)?', type: "text", answer: null, required: true, intakeOnly: true },
+    { id: "INTAKE-009", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Reason for Engagement', text: 'What does the client consider their biggest pain point today?', type: "text", answer: null, required: false, intakeOnly: true },
+    { id: "INTAKE-010", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Timeline & Constraints', text: 'Is there a target go-live date or an external deadline driving the timeline (e.g., fiscal year-end, contract expiration)?', type: "text", answer: null, required: false, intakeOnly: true },
     { id: "QUAL-GL", module: "GL", phase: "2", eyebrow: 'Phase 2 · Needs & Wants — Module Scoping', text: 'Is General Ledger required as the core financial system of record? (GL is the foundation module for every Fusion Financials implementation and is always in scope.)', type: "yn", answer: "Yes", required: true, locked: true },
     { id: "QUAL-AP", module: "AP", phase: "2", eyebrow: 'Phase 2 · Needs & Wants — Module Scoping', text: 'Does the organization process vendor/supplier invoices and issue payments to suppliers?', type: "yn", answer: null, required: true },
     { id: "QUAL-AR", module: "AR", phase: "2", eyebrow: 'Phase 2 · Needs & Wants — Module Scoping', text: 'Does the organization invoice customers and manage receivables, collections, or billing?', type: "yn", answer: null, required: true },
@@ -963,14 +971,14 @@
     { id: "QUAL-CM", module: "CM", phase: "2", eyebrow: 'Phase 2 · Needs & Wants — Module Scoping', text: 'Does the organization require bank statement reconciliation, cash positioning, or cash forecasting?', type: "yn", answer: null, required: true },
     { id: "QUAL-MULTI", module: "GL", phase: "2", eyebrow: 'Phase 2 · Needs & Wants — Module Scoping', text: 'Will multiple legal entities or business units require consolidated financial reporting?', type: "yn", answer: null, required: true },
     { id: "GL-001", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Enterprise Structure & Foundation', text: 'What are the legal names, official addresses, Tax IDs, and specific statutory reporting obligations for each legal entity and business unit?', type: "text", answer: null, required: true },
-    { id: "GL-002", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Enterprise Structure & Foundation', text: 'What is your primary currency, and will you require multi-currency accounting? What accounting methods (e.g., accrual, modified accrual, cash) are required?', type: "text", answer: null, required: true },
+    { id: "GL-002", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Enterprise Structure & Foundation', text: 'What is your primary currency, and will you require multi-currency accounting? What accounting methods (e.g., accrual, modified accrual, cash) are required?', type: "text", answer: null, required: true, intakeOnly: true },
     { id: "GL-003", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Enterprise Structure & Foundation', text: 'What level of physical location tracking is needed (e.g., building, room), and does location data need to integrate with external systems like IT help desk or asset tracking software?', type: "text", answer: null, required: false },
-    { id: "GL-004", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Chart of Accounts (COA) & Governance', text: 'Does the proposed segment structure (Fund, Cost Center, Subsidiary, Natural Account, Activity, Future 1) cover all operational and reporting needs?', type: "text", answer: null, required: true },
+    { id: "GL-004", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Chart of Accounts (COA) & Governance', text: 'Does the proposed segment structure (Fund, Cost Center, Subsidiary, Natural Account, Activity, Future 1) cover all operational and reporting needs?', type: "text", answer: null, required: true, intakeOnly: true },
     { id: "GL-005", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Chart of Accounts (COA) & Governance', text: 'Should the system allow dynamic creation of new account combinations during entry, or should all combinations be manually created and approved by Finance?', type: "text", answer: null, required: true },
     { id: "GL-006", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Chart of Accounts (COA) & Governance', text: 'What specific cross-validation rules should exist to block invalid segment combinations (e.g., restricting certain cost centers to specific natural accounts)? Which departments need access restricted to only their specific account segments?', type: "text", answer: null, required: true },
     { id: "GL-007", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Chart of Accounts (COA) & Governance', text: 'What is the formal workflow, approval path, or board requirement for adding new projects, funds, or segment values?', type: "text", answer: null, required: true },
-    { id: "GL-008", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Accounting Calendar & Period Management', text: 'Does your fiscal year follow the standard calendar year or a custom fiscal period?', type: "text", answer: null, required: true },
-    { id: "GL-009", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Accounting Calendar & Period Management', text: 'Do you require one adjusting period at year-end or two separate periods (e.g., one for internal year-end adjustments and one for external audit adjustments)?', type: "text", answer: null, required: true },
+    { id: "GL-008", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Accounting Calendar & Period Management', text: 'Does your fiscal year follow the standard calendar year or a custom fiscal period?', type: "text", answer: null, required: true, intakeOnly: true },
+    { id: "GL-009", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Accounting Calendar & Period Management', text: 'Do you require one adjusting period at year-end or two separate periods (e.g., one for internal year-end adjustments and one for external audit adjustments)?', type: "text", answer: null, required: true, intakeOnly: true },
     { id: "GL-010", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Accounting Calendar & Period Management', text: 'What are your policies regarding soft-closing periods, reopening prior periods, and managing future-entry statuses?', type: "text", answer: null, required: true },
     { id: "GL-011", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Journal Entries & Approval Workflows', text: 'What types of manual journals do you enter (e.g., accruals, reclassifications, interfund billings)?', type: "text", answer: null, required: true },
     { id: "GL-012", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Journal Entries & Approval Workflows', text: 'What are the dollar thresholds, role hierarchies, or department-specific rules that dictate who must approve a journal before posting?', type: "text", answer: null, required: true },
@@ -985,9 +993,9 @@
     { id: "GL-021", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Allocations', text: 'Should allocations be calculated and generated dynamically during period-close or on a set recurring schedule?', type: "text", answer: null, required: false },
     { id: "GL-022", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Grant & Compliance Reporting (HHS / Federal / State)', text: 'How do you currently track allowable vs. unallowable costs, federal awards, and state reporting codes?', type: "text", answer: null, required: false },
     { id: "GL-023", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Grant & Compliance Reporting (HHS / Federal / State)', text: 'What specific metadata fields need to be attached to accounts or activities to satisfy external grant reporting (e.g., Assistance Listing/CFDA numbers, PMS subaccounts, Grant Manager names)?', type: "text", answer: null, required: false },
-    { id: "GL-024", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'How many years of historical transactional data need to be converted from the legacy system?', type: "number", answer: null, required: true },
-    { id: "GL-024B", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'How many years of summary account balances need to be converted?', type: "number", answer: null, required: true },
-    { id: "GL-024C", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'How many years of budget history need to be converted?', type: "number", answer: null, required: true },
+    { id: "GL-024", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'How many years of historical transactional data need to be converted from the legacy system?', type: "number", answer: null, required: true, intakeOnly: true },
+    { id: "GL-024B", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'How many years of summary account balances need to be converted?', type: "number", answer: null, required: true, intakeOnly: true },
+    { id: "GL-024C", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'How many years of budget history need to be converted?', type: "number", answer: null, required: true, intakeOnly: true },
     { id: "GL-025", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'What third-party or banking interfaces need to feed directly into the general ledger or subledgers?', type: "text", answer: null, required: true },
     { id: "GL-026", module: "GL", phase: "3", eyebrow: 'Phase 3 · GL Discovery — Data Conversion, Interfaces & Reporting', text: 'What standard financial statements (Balance Sheet, Income Statement, Cash Flow), operational tracking reports, and state/federal regulatory filings must be built out of the box?', type: "text", answer: null, required: true },
     { id: "AP-001", module: "AP", phase: "3", eyebrow: 'Phase 3 · AP Discovery — Supplier Management & Setup', text: 'What is the current process for onboarding and approving new suppliers (e.g., required documentation, W-9/tax forms, banking details)?', type: "text", answer: null, required: true },
@@ -1053,8 +1061,31 @@
   // The ordered list of questions actually being asked right now, given the
   // client's current qualifier answers. Recomputed on every navigation step
   // so answering a Phase 2 qualifier immediately grows/shrinks Phase 3.
+  // Intake and update are different conversations.
+  //
+  // Intake collects everything needed to produce a configuration. An update
+  // happens later, when something about the client has changed and a new
+  // configuration is needed. Walking someone back through the whole deck to
+  // change one thing is how a tool stops being used, so an update run asks
+  // only the questions whose answers an update can actually change.
+  //
+  // intakeOnly marks the rest: a ledger's currency, the chart of accounts
+  // structure, the accounting calendar, how many years of history were
+  // converted. Changing one of those is a re-implementation, not an update,
+  // and the conversion question is meaningless a second time because the
+  // conversion already happened.
+  //
+  // They are not frozen. Every answer stays editable on the client
+  // information screen. They are simply not put in front of someone again,
+  // one at a time, in a flow about something else.
+  var updateRun = false;   // true while an update run is in progress
+
   function getActiveQuestions() {
-    return ALL_QUESTIONS.filter(function (q) { return q.phase !== "3" || isModuleInScope(q.module); });
+    return ALL_QUESTIONS.filter(function (q) {
+      if (q.phase === "3" && !isModuleInScope(q.module)) return false;
+      if (updateRun && q.intakeOnly) return false;
+      return true;
+    });
   }
 
   // ---------------- Client record state ----------------
@@ -1292,10 +1323,12 @@
   // views cannot be reached without picking one again.
   function clearActiveClient() {
     currentClient = { id: null, companyName: "", createdAt: null };
+    updateRun = false;
     updateClientContextChip();
   }
 
   function startNewClient() {
+    updateRun = false;
     currentClient = { id: "client_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8), companyName: "", createdAt: null };
     ALL_QUESTIONS.forEach(function (q) { q.answer = q.locked ? "Yes" : null; q.skipped = false; q.unknown = false; });
     qIndex = 0;
@@ -1309,20 +1342,26 @@
   // back to "Yes" later restores prior answers instead of losing them), then
   // jump straight to the first unanswered required question still in scope
   // so a consultant resuming an edit lands on exactly what's missing.
-  async function openClient(id) {
+  async function openClient(id, asUpdate) {
     try {
       var record = await getClientRecord(id);
       if (!record) { showFatalError("Couldn't find that client record — it may have been deleted."); return; }
       currentClient = { id: record.id, companyName: record.companyName, createdAt: record.createdAt };
+      updateRun = !!asUpdate;
       ALL_QUESTIONS.forEach(function (q) {
         var v = record.answers ? record.answers[q.id] : undefined;
         q.answer = (v !== undefined) ? v : (q.locked ? "Yes" : null);
         q.skipped = !!(record.skipped && record.skipped[q.id]);
         q.unknown = !!(record.unknown && record.unknown[q.id]);
+        q.qualityAcknowledged = false;
       });
       var active = getActiveQuestions();
+      // An update starts at the beginning: the point is to walk what might
+      // have changed, and the existing answers are already in the fields.
+      // Resuming an intake starts at the first thing missing, because there
+      // the point is to finish.
       var firstGap = active.findIndex(isGap);
-      qIndex = firstGap >= 0 ? firstGap : 0;
+      qIndex = asUpdate ? 0 : (firstGap >= 0 ? firstGap : 0);
       updateClientContextChip();
       showScreen("questionnaire");
       renderQuestion();
@@ -1636,14 +1675,25 @@
     wrap.appendChild(list);
   }
 
+  function setInfoUpdateStatus(message, ok) {
+    var el = document.getElementById("client-info-update-status");
+    el.textContent = message || "";
+    el.classList.toggle("ok", !!ok);
+  }
+
+  document.getElementById("client-info-start-update").addEventListener("click", safe(async function () {
+    if (!infoClientId) return;
+    var id = infoClientId;
+    closeClientInfo();
+    await openClient(id, true);
+  }));
+
   document.getElementById("client-info-regenerate").addEventListener("click", safe(async function () {
     if (!infoClientId) return;
-    var statusEl = document.getElementById("client-info-update-status");
     var box = document.getElementById("client-info-change-summary");
     var summary = box.value.trim();
     if (!summary) {
-      statusEl.textContent = "Say what changed first — that's the whole point of the record.";
-      statusEl.classList.remove("ok");
+      setInfoUpdateStatus("Say what changed first — that's the whole point of the record.", false);
       return;
     }
 
@@ -1655,8 +1705,7 @@
       // has to be what is of record.
       var record = await getClientRecord(infoClientId);
       if (!record) {
-        statusEl.textContent = "Couldn't read this client's record to export it.";
-        statusEl.classList.remove("ok");
+        setInfoUpdateStatus("Couldn't read this client's record to export it.", false);
         return;
       }
 
@@ -1686,11 +1735,9 @@
       infoLoaded = refreshed;
       renderConfigUpdates(refreshed.configUpdates);
       renderAnswerFields(refreshed);
-      statusEl.textContent = "Update recorded and configuration exported.";
-      statusEl.classList.add("ok");
+      setInfoUpdateStatus("Update recorded and configuration exported.", true);
     } catch (err) {
-      statusEl.textContent = "Couldn't record that update: " + err.message;
-      statusEl.classList.remove("ok");
+      setInfoUpdateStatus("Couldn't record that update: " + err.message, false);
     }
   }));
 
@@ -1982,6 +2029,20 @@
   function renderQuestion() {
     var active = getActiveQuestions();
     var q = active[qIndex];
+    // Say so, and say how many are missing and why. A shorter deck with no
+    // explanation reads as a bug.
+    var modeNote = document.getElementById("q-mode-note");
+    if (updateRun) {
+      var held = ALL_QUESTIONS.filter(function (x) {
+        return x.intakeOnly && (x.phase !== "3" || isModuleInScope(x.module));
+      }).length;
+      modeNote.textContent = "Update run — " + held +
+        " intake questions are not asked again. Edit those on the client screen if they need to change.";
+      modeNote.classList.add("show");
+    } else {
+      modeNote.textContent = "";
+      modeNote.classList.remove("show");
+    }
     document.getElementById("q-eyebrow").textContent = q.eyebrow;
     document.getElementById("q-text").textContent = q.text;
     document.getElementById("q-progress-label").textContent = (qIndex + 1) + " / " + active.length;
@@ -2080,10 +2141,30 @@
     var active = getActiveQuestions();
     if (qIndex < active.length - 1) {
       qIndex += 1; renderQuestion();
-    } else {
-      showScreen("chat");
-      startChat();
+      return;
     }
+    if (updateRun) {
+      // Straight back to where a configuration is produced, rather than to
+      // the follow-up chat. The chat exists to chase what an intake missed;
+      // an update run has just been walked end to end on purpose, and the
+      // thing left to do is say what changed and take the new configuration.
+      var id = currentClient.id;
+      updateRun = false;
+      showScreen("records");
+      await renderRecordsScreen();
+      if (id) {
+        await openClientInfo(id);
+        var box = document.getElementById("client-info-change-summary");
+        // Guarded: scrollIntoView is absent in some environments, and
+        // failing to scroll must not throw away the rest of this.
+        if (typeof box.scrollIntoView === "function") box.scrollIntoView({ block: "center" });
+        box.focus();
+        setInfoUpdateStatus("Answers updated. Say what changed, and take the new configuration.", true);
+      }
+      return;
+    }
+    showScreen("chat");
+    startChat();
   }
 
   document.getElementById("q-next").addEventListener("click", safe(async function () {

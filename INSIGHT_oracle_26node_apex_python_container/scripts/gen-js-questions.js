@@ -40,6 +40,10 @@ function renderQuestion(q) {
     `required: ${q.is_required ? "true" : "false"}`,
   ];
   if (q.is_locked) parts.push("locked: true");
+  // Only the exception is emitted. Almost every question is revisited on an
+  // update, so writing askOnUpdate on all hundred would be noise around the
+  // eighteen that matter.
+  if (!q.ask_on_update) parts.push("intakeOnly: true");
   return "    { " + parts.join(", ") + " },";
 }
 

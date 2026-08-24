@@ -15,12 +15,21 @@ const path = require("node:path");
 
 const ROOT = path.join(__dirname, "..");
 const JSON_PATH = path.join(ROOT, "questions", "insight_questions.json");
-const SQL_PATH = path.join(ROOT, "sql", "V12__questionnaire_seed_questions.sql");
+// The seed is regenerated into a NEW migration each time the question set
+// changes, never edited in place. Flyway checksums an applied migration:
+// editing V12 after it has run anywhere makes `flyway migrate` fail
+// validation everywhere it has run. V12 is frozen history; this constant is
+// what moves. Bump it -- and add the matching file -- when the questions
+// change again.
+const SEED_MIGRATION = "V24__questionnaire_seed_questions.sql";
+const SQL_PATH = path.join(ROOT, "sql", SEED_MIGRATION);
 
 const HEADER = `ALTER SESSION SET CURRENT_SCHEMA = ITERIA_AI;
 -- ============================================================================
 -- QUESTIONNAIRE BACKEND: SEED DATA FOR INSIGHT_QUESTIONS
 -- Requires INSIGHT_07 (insight_questions table).
+--
+-- Requires V23 (the ask_on_update column).
 --
 -- Generated from questions/insight_questions.json (scripts/gen-sql-seed.js)
 -- -- the same source that generates INSIGHT_app.html's ALL_QUESTIONS array
@@ -45,11 +54,12 @@ WHEN MATCHED THEN UPDATE SET
     tgt.answer_type   = src.answer_type,
     tgt.is_required   = src.is_required,
     tgt.is_locked     = src.is_locked,
+    tgt.ask_on_update = src.ask_on_update,
     tgt.display_order = src.display_order
 WHEN NOT MATCHED THEN INSERT (
-    question_id, module_code, phase, eyebrow, question_text, answer_type, is_required, is_locked, display_order
+    question_id, module_code, phase, eyebrow, question_text, answer_type, is_required, is_locked, ask_on_update, display_order
 ) VALUES (
-    src.question_id, src.module_code, src.phase, src.eyebrow, src.question_text, src.answer_type, src.is_required, src.is_locked, src.display_order
+    src.question_id, src.module_code, src.phase, src.eyebrow, src.question_text, src.answer_type, src.is_required, src.is_locked, src.ask_on_update, src.display_order
 );
 
 COMMIT;
@@ -90,6 +100,7 @@ function renderRow(q) {
     `${sqlStringLiteral(q.answer_type)} AS answer_type, ` +
     `${q.is_required} AS is_required, ` +
     `${q.is_locked} AS is_locked, ` +
+    `${q.ask_on_update} AS ask_on_update, ` +
     `${q.display_order} AS display_order FROM dual`
   );
 }
@@ -104,7 +115,7 @@ function main() {
   if (check) {
     const current = fs.readFileSync(SQL_PATH, "utf8");
     if (current !== content) {
-      console.error("sql/V12__questionnaire_seed_questions.sql is out of sync with questions/insight_questions.json");
+      console.error(`sql/${SEED_MIGRATION} is out of sync with questions/insight_questions.json`);
       process.exit(1);
     }
     process.exit(0);

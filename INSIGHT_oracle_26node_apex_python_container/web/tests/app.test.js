@@ -1884,3 +1884,118 @@ test("config update: works with no backend", async () => {
     "the in-memory store should keep the history on the record");
   win.close();
 });
+
+// ---------------------------------------------------------------------------
+// Update runs: a consultant changing something should not be walked back
+// through decisions an update cannot change.
+// ---------------------------------------------------------------------------
+const INTAKE_ONLY_COUNT = (HTML.match(/intakeOnly: true/g) || []).length;
+
+test("update run: asks fewer questions than intake, and says why", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-upd", {
+    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-upd");
+  byId(win, "client-info-start-update").click();
+  await wait(80);
+
+  assert.ok(byId(win, "screen-questionnaire").classList.contains("active"));
+  const shown = Number(progressLabel(win).split("/")[1].trim());
+  assert.ok(shown < GL_ONLY_DECK, `update deck (${shown}) should be shorter than intake (${GL_ONLY_DECK})`);
+  // A shorter deck with no explanation reads as a bug.
+  assert.ok(byId(win, "q-mode-note").classList.contains("show"));
+  assert.match(byId(win, "q-mode-note").textContent, /not asked again/i);
+  win.close();
+});
+
+test("update run: the questions it skips are exactly the intake-only ones", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-upd", {
+    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-upd");
+  byId(win, "client-info-start-update").click();
+  await wait(80);
+
+  const shown = Number(progressLabel(win).split("/")[1].trim());
+  // GL-only scope: the intake-only questions in it are the 11 client-profile
+  // ones plus GL-002/004/008/009 and the three conversion questions.
+  const heldInScope = INTAKE_ONLY_COUNT;   // none of them belong to AP/AR/FA/CM
+  assert.equal(shown, GL_ONLY_DECK - heldInScope);
+  win.close();
+});
+
+test("update run: an intake run still asks everything", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-upd", {
+    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  byId(win, "nav-clients").click();
+  await wait(40);
+  byId(win, "records-list-area").querySelector('[data-open="c-upd"]').click();
+  await wait(60);
+
+  assert.equal(Number(progressLabel(win).split("/")[1].trim()), GL_ONLY_DECK,
+    "opening a client normally is still an intake run");
+  assert.equal(byId(win, "q-mode-note").classList.contains("show"), false);
+  win.close();
+});
+
+test("update run: starts at the first question, not at the first gap", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-upd", {
+    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-upd");
+  byId(win, "client-info-start-update").click();
+  await wait(80);
+
+  // The point of an update is to walk what might have changed, so it starts
+  // at the top with the existing answers in the fields.
+  assert.match(progressLabel(win), /^1 \//);
+  win.close();
+});
+
+test("update run: finishing returns to the configuration update section", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-upd", {
+    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-upd");
+  byId(win, "client-info-start-update").click();
+  await wait(80);
+
+  for (let i = 0; i < 120; i++) {
+    if (byId(win, "client-info").classList.contains("show")) break;
+    if (byId(win, "screen-chat").classList.contains("active")) break;
+    const yn = win.document.querySelectorAll(".yn-btn");
+    if (yn.length) clickYn(win, "Yes");
+    else fillValid(win, "A considered answer for this update.");
+    await clickNext(win);
+    await wait(15);
+  }
+  await wait(150);
+
+  // Not the follow-up chat: that exists to chase what an intake missed.
+  assert.equal(byId(win, "screen-chat").classList.contains("active"), false);
+  assert.ok(byId(win, "client-info").classList.contains("show"),
+    "an update should end where the configuration is produced");
+  assert.match(byId(win, "client-info-update-status").textContent, /say what changed/i);
+  win.close();
+});

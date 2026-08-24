@@ -291,7 +291,34 @@ sql/V19__summary_counts_unknown.sql            -- insight_client_summary: "not k
 sql/V20__client_profile_and_notes.sql          -- insight_client_notes: additional information, kept apart from answers
 sql/V21__fill_blank_answers_without_approval.sql -- filling a blank is not an edit; repairs the answers that gated
 sql/V22__configuration_updates.sql             -- insight_config_updates: why a configuration was regenerated
+sql/V23__question_update_scope.sql             -- insight_questions.ask_on_update
+sql/V24__questionnaire_seed_questions.sql      -- re-seeds the questions, now carrying ask_on_update
 ```
+
+### Intake and update are different runs
+`ask_on_update` marks which questions are asked again when a client is
+updated. Intake collects everything needed to produce a configuration; an
+update happens later, when something has changed and a new configuration is
+needed. Walking someone back through the whole deck to change one thing is
+how a tool stops being used.
+
+The test is not "could this ever change" but "would changing this be an
+update, or a re-implementation?" A ledger's currency, the chart of accounts
+structure and the accounting calendar are decided once. How many years of
+history to convert is meaningless a second time, because the conversion
+already happened. Eighteen questions are marked `0`; the other eighty-two
+are asked again.
+
+Not asking is the lossy direction, so the column defaults to `1` and the
+doubtful cases are `1` too — a consultant can skip a question they do not
+need, but cannot answer one they are never shown. `0` does not mean frozen
+either: every answer stays editable on the client information screen.
+
+**The seed is regenerated into a new migration each time, never edited in
+place.** Flyway checksums an applied migration, so editing `V12` after it has
+run anywhere makes `flyway migrate` fail validation everywhere it has run.
+`V12` is frozen history; `scripts/gen-sql-seed.js` writes the version named
+in its `SEED_MIGRATION` constant, which is what moves.
 
 Design decisions, in short:
 - **Questions are metadata, not columns.** `insight_questions` drives what
