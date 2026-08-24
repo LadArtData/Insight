@@ -868,19 +868,15 @@ test("not-known: is not chased as a gap, unlike a skip", async () => {
   const dom = await bootApp();
   const win = dom.window;
   byId(win, "btn-new-client").click();
-  await wait(20);
-  byId(win, "q-unknown").click();   // INTAKE-001 -> not known
+  await fillIntake(win);
+  await answerQualifiers(win);      // GL-only deck
+  // Both on Phase 3 questions: the chat does not chase Phase 1 any more,
+  // since the client information sheet owns those.
+  byId(win, "q-unknown").click();   // first GL question -> not known
   await wait(30);
-  await clickSkip(win);             // INTAKE-002 -> skipped
+  await clickSkip(win);             // second GL question -> skipped
   await wait(30);
-
-  // Finish the rest so the chat opens and reports its gap count.
-  for (let i = 0; i < 120; i++) {
-    if (byId(win, "screen-chat").classList.contains("active")) break;
-    const yn = win.document.querySelectorAll(".yn-btn");
-    if (yn.length) clickYn(win, "Yes"); else fillValid(win, "answer " + i);
-    await clickNext(win);
-  }
+  await finishRemainingQuestions(win);
   await wait(1400);
   const opening = byId(win, "chat-body").textContent;
   assert.match(opening, /1 required question/,
@@ -954,7 +950,22 @@ function seedClient(server, id, extra) {
   }, extra || {}));
 }
 
-test("client info: the sheet opens populated with the saved name and contact", async () => {
+// Finds the editable row for a question id inside the sheet.
+function qfRow(win, qid) {
+  return byId(win, "client-info-fields").querySelector(`.qf[data-qid="${qid}"]`);
+}
+function qfField(win, qid) {
+  const row = qfRow(win, qid);
+  return row && row.querySelector("input, textarea");
+}
+function typeInto(win, qid, value) {
+  const field = qfField(win, qid);
+  assert.ok(field, `expected an editable field for ${qid}`);
+  field.value = value;
+  field.dispatchEvent(new win.Event("input"));
+}
+
+test("client info: the sheet opens populated with the saved name and answers", async () => {
   const server = statefulFakeOrds();
   seedClient(server, "c-info");
   const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
@@ -964,11 +975,31 @@ test("client info: the sheet opens populated with the saved name and contact", a
 
   assert.ok(byId(win, "client-info").classList.contains("show"), "sheet should be visible");
   assert.equal(byId(win, "client-info-name").value, "Meridian County");
-  assert.equal(byId(win, "client-info-contact").value, "R. Alvarez");
+  assert.equal(qfField(win, "INTAKE-001").value, "Meridian County Government",
+    "each question should render with its stored answer");
   win.close();
 });
 
-test("client info: saving details sends only the profile fields, never the answers", async () => {
+test("client info: every in-scope question is editable, out-of-scope modules are not shown", async () => {
+  const server = statefulFakeOrds();
+  // GL only: AP/AR/FA/CM declined, so their Phase 3 questions are out of scope.
+  seedClient(server, "c-scope", {
+    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-scope");
+
+  const rows = byId(win, "client-info-fields").querySelectorAll(".qf");
+  assert.equal(rows.length, GL_ONLY_DECK,
+    "the sheet should show exactly the client's own scope");
+  assert.ok(qfRow(win, "GL-001"), "GL is always in scope");
+  assert.equal(qfRow(win, "AP-001"), null, "a declined module's questions must not appear");
+  win.close();
+});
+
+test("client info: saving sends only the answers that were touched", async () => {
   const server = statefulFakeOrds();
   seedClient(server, "c-info");
   const calls = [];
@@ -983,24 +1014,74 @@ test("client info: saving details sends only the profile fields, never the answe
   await openInfoSheet(win, "c-info");
 
   byId(win, "client-info-name").value = "Meridian County Water District";
-  byId(win, "client-info-contact").value = "D. Okafor";
+  typeInto(win, "INTAKE-002", "D. Okafor");
   byId(win, "client-info-save").click();
-  await wait(60);
+  await wait(80);
 
   const put = calls.filter((c) => c.method === "PUT" && c.url.endsWith("/clients/c-info")).pop();
   assert.ok(put, "should PUT the client");
   const sent = JSON.parse(put.body);
   assert.equal(sent.companyName, "Meridian County Water District");
+  assert.deepEqual(Object.keys(sent.answers), ["INTAKE-002"],
+    "only the edited answer should be sent -- resending the rest would compare all of them");
+  // An edit made deliberately on this screen is consultant work, not a
+  // value captured mid sales call.
+  assert.equal(sent.source, "CONSULTANT");
+  // The roster's contact line follows the contact-name answer rather than
+  // being typed twice.
   assert.equal(sent.primaryContact, "D. Okafor");
-  // The whole point of a profile-only PUT: resending answers would compare
-  // every one of them and raise change requests for any that had drifted.
-  assert.ok(!("answers" in sent), "a profile save must not carry the answer set");
 
   const stored = server.clients.get("c-info");
   assert.equal(stored.companyName, "Meridian County Water District");
+  assert.equal(stored.answers["INTAKE-002"], "D. Okafor");
   assert.equal(stored.answers["INTAKE-001"], "Meridian County Government",
-    "answers must survive a profile-only save untouched");
+    "untouched answers must survive the save");
   assert.match(byId(win, "client-info-status").textContent, /saved/i);
+  win.close();
+});
+
+test("client info: an answer that fails its format is refused before anything is sent", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-info", { answers: { "QUAL-GL": "Yes" } });
+  const calls = [];
+  const dom = await bootApp((win) => {
+    win.fetch = (url, opts) => {
+      calls.push({ method: (opts && opts.method) || "GET", url: String(url) });
+      return server.fetchImpl(url, opts);
+    };
+  });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-info");
+
+  const before = calls.filter((c) => c.method === "PUT").length;
+  typeInto(win, "INTAKE-002C", "not-an-address");   // the contact email question
+  byId(win, "client-info-save").click();
+  await wait(60);
+
+  assert.equal(calls.filter((c) => c.method === "PUT").length, before,
+    "a badly formatted answer must not reach the database");
+  assert.match(qfRow(win, "INTAKE-002C").querySelector(".qf-error").textContent, /email/i);
+  assert.match(byId(win, "client-info-status").textContent, /needs fixing/i);
+  win.close();
+});
+
+test("client info: an unanswered required question is flagged as still needed", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-info", {
+    answers: { "QUAL-GL": "Yes", "INTAKE-001": "Meridian County Government" },
+    skipped: { "INTAKE-002C": true },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-info");
+
+  const flag = qfRow(win, "INTAKE-002C").querySelector(".qf-flag");
+  assert.ok(flag, "a blank required question should carry a flag");
+  assert.match(flag.textContent, /Still needed/);
+  // and one that was answered should not
+  assert.equal(qfRow(win, "INTAKE-001").querySelector(".qf-flag"), null);
   win.close();
 });
 
@@ -1190,21 +1271,26 @@ test("client info: a name set in the sheet is not overwritten by INTAKE-001 on t
 // same format rules the questionnaire enforces.
 // ---------------------------------------------------------------------------
 
-// Walks Phase 1, skipping the first question whose field is numeric, so the
-// chat later has exactly one gap and that gap is a typed one.
-async function fillIntakeSkippingNumeric(win) {
+// Walks the whole deck, skipping exactly one numeric question outside
+// Phase 1, so the chat later has one gap and that gap is a typed one.
+// Phase 1 is excluded deliberately: the chat no longer chases it, so a
+// skipped intake question would produce no gap at all.
+async function finishDeckSkippingOneNumeric(win) {
   let skipped = false;
-  for (let i = 0; i < INTAKE_COUNT; i++) {
+  for (let i = 0; i < 120; i++) {
+    if (byId(win, "screen-chat").classList.contains("active")) break;
     const el = win.document.querySelector(".q-input");
-    if (!skipped && el && el.getAttribute("inputmode") === "numeric") {
+    const intake = /Client Intake/.test(byId(win, "q-eyebrow").textContent);
+    if (!skipped && !intake && el && el.getAttribute("inputmode") === "numeric") {
       skipped = true;
       await clickSkip(win);
       continue;
     }
-    fillValid(win, "answer " + i);
+    const yn = win.document.querySelectorAll(".yn-btn");
+    if (yn.length) clickYn(win, "Yes"); else fillValid(win, "answer " + i);
     await clickNext(win);
   }
-  assert.ok(skipped, "expected at least one numeric question in intake");
+  assert.ok(skipped, "expected a numeric question outside Phase 1");
 }
 
 test("chat: each answer is saved as it is given, not only when the chat ends", async () => {
@@ -1265,9 +1351,11 @@ test("chat: an answer that breaks the question's format is refused and re-asked"
   const dom = await bootApp();
   const win = dom.window;
   byId(win, "btn-new-client").click();
-  await fillIntakeSkippingNumeric(win);
-  await answerQualifiers(win);
-  await finishRemainingQuestions(win);
+  await fillIntake(win);
+  // Every module in scope, so the numeric questions in AP/AR/FA/CM/GL are
+  // all on the deck and one of them can be left as the gap.
+  await answerQualifiers(win, { AP: "Yes", AR: "Yes", FA: "Yes", CM: "Yes", MULTI: "Yes" });
+  await finishDeckSkippingOneNumeric(win);
   await wait(1300);
   assert.ok(byId(win, "screen-chat").classList.contains("active"));
 
@@ -1308,5 +1396,122 @@ test("chat: a yes/no gap still accepts a conversational yes", async () => {
   await wait(900);
   assert.match(byId(win, "chat-body").textContent, /covers the required gaps|still blank/,
     "a conversational yes should be accepted, not bounced");
+  win.close();
+});
+
+test("client info: the follow-up chat no longer chases client-identification questions", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  // Skip every Phase 1 question: the sheet owns those now.
+  for (let i = 0; i < INTAKE_COUNT; i++) await clickSkip(win);
+  await answerQualifiers(win);
+  await finishRemainingQuestions(win);
+  await wait(1300);
+
+  const chatText = byId(win, "chat-body").textContent;
+  assert.match(chatText, /no gaps to fill in|All caught up/,
+    "skipped intake questions must not be raised in the chat");
+  assert.doesNotMatch(chatText, /primary contact/i);
+  win.close();
+});
+
+test("client info: skipped intake questions still show in the sheet as outstanding", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-out", {
+    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
+    skipped: { "INTAKE-002B": true, "INTAKE-002C": true, "INTAKE-002D": true },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-out");
+
+  // Not chased in the chat, but not lost either -- the sheet is where they
+  // are now visible and fixable.
+  ["INTAKE-002B", "INTAKE-002C"].forEach((qid) => {
+    const flag = qfRow(win, qid).querySelector(".qf-flag");
+    assert.ok(flag && /Still needed/.test(flag.textContent), qid + " should read as outstanding");
+  });
+  win.close();
+});
+
+test("client info: an edit to an answer that already has a value reports as pending review", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-pend", { answers: { "QUAL-GL": "Yes", "INTAKE-003": "CFO and Controller" } });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-pend");
+
+  typeInto(win, "INTAKE-003", "CFO, Controller and IT Director");
+  byId(win, "client-info-save").click();
+  await wait(80);
+
+  // The fake backend mirrors record_answer: changing a value that exists
+  // raises a change request instead of overwriting.
+  assert.match(byId(win, "client-info-status").textContent, /pending review/i,
+    "the sheet must not claim an edit is saved while it is queued");
+  win.close();
+});
+
+test("client info: filling a blank answer applies straight away", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-fill", { answers: { "QUAL-GL": "Yes" }, skipped: { "INTAKE-002B": true } });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-fill");
+
+  typeInto(win, "INTAKE-002B", "Director of Finance");
+  byId(win, "client-info-save").click();
+  await wait(80);
+
+  assert.equal(server.clients.get("c-fill").answers["INTAKE-002B"], "Director of Finance");
+  assert.doesNotMatch(byId(win, "client-info-status").textContent, /pending/i,
+    "filling a blank is not an edit and must not queue");
+  win.close();
+});
+
+test("client info: a yes/no question edits through its buttons", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-yn", { answers: { "QUAL-GL": "Yes", "QUAL-AP": "No" } });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-yn");
+
+  const row = qfRow(win, "QUAL-AP");
+  const yes = Array.from(row.querySelectorAll(".qf-yn button")).find((b) => b.textContent === "Yes");
+  yes.click();
+  byId(win, "client-info-save").click();
+  await wait(80);
+
+  const sent = server.clients.get("c-yn").answers;
+  assert.ok(sent["QUAL-AP"] === "Yes" || byId(win, "client-info-status").textContent.match(/pending/i),
+    "the qualifier should either flip or be queued, not be ignored");
+  win.close();
+});
+
+test("client info: with no backend, editing an answer keeps the rest of the record", async () => {
+  const dom = await bootApp((win) => { win.fetch = () => Promise.reject(new Error("offline")); });
+  const win = dom.window;
+  await wait(60);
+  byId(win, "btn-new-client").click();
+  await wait(30);
+  fillText(win, "Harbor Freight Logistics, Harbor");
+  await clickNext(win);
+  fillValid(win, "R. Alvarez");
+  await clickNext(win);
+  await wait(40);
+
+  await openInfoSheet(win, null);
+  typeInto(win, "INTAKE-002", "D. Okafor");
+  byId(win, "client-info-save").click();
+  await wait(60);
+
+  assert.equal(qfField(win, "INTAKE-002").value, "D. Okafor");
+  assert.equal(qfField(win, "INTAKE-001").value, "Harbor Freight Logistics, Harbor",
+    "the in-memory store must merge the edit, not replace the record with it");
   win.close();
 });

@@ -317,6 +317,38 @@
   .note-tag.ai { color: var(--orange-soft); border-color: var(--orange-soft); }
   .note-actions { display: flex; gap: 6px; margin-left: auto; }
   .note-empty { font-size: 0.8rem; color: var(--ink-muted); padding: 4px 0 12px; }
+
+  /* Editable answers inside the sheet. Grouped by the question's own
+     eyebrow, so the form reads in the same order and language as the
+     questionnaire rather than as a flat wall of inputs. */
+  .qf-list { max-height: 46vh; overflow-y: auto; padding-right: 6px; margin-bottom: 8px; }
+  .qf-group-title {
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    color: var(--orange-soft); margin: 18px 0 8px; position: sticky; top: 0;
+    background: var(--navy-card); padding: 4px 0;
+  }
+  .qf-group-title:first-child { margin-top: 0; }
+  .qf { margin-bottom: 14px; }
+  .qf-question { font-size: 0.8rem; margin-bottom: 6px; display: flex; gap: 8px; align-items: baseline; }
+  .qf-flag {
+    font-size: 0.62rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase;
+    border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; flex-shrink: 0;
+    color: var(--ink-muted);
+  }
+  .qf-flag.needed { color: var(--orange-soft); border-color: var(--orange-soft); }
+  .qf-error { font-size: 0.72rem; color: #ff8a80; margin-top: 5px; display: none; }
+  .qf-error.show { display: block; }
+  .qf-yn { display: flex; gap: 8px; }
+  .qf-yn button {
+    flex: 1; padding: 9px; border-radius: 10px; border: 1px solid var(--line);
+    background: rgba(255,255,255,0.03); color: var(--ink-light); cursor: pointer;
+    font-family: inherit; font-size: 0.82rem; font-weight: 600;
+  }
+  .qf-yn button.selected { border-color: var(--orange); color: var(--orange-soft); background: rgba(255,106,26,0.1); }
+  .sheet-actions-sticky {
+    position: sticky; bottom: 0; background: var(--navy-card);
+    padding: 12px 0 4px; margin-top: 0;
+  }
 </style>
 </head>
 <body>
@@ -342,12 +374,17 @@
       <button type="button" class="icon-btn" id="client-info-close" aria-label="Close">✕</button>
     </div>
 
-    <p class="sheet-label">Company name</p>
+    <p class="sheet-label">Record name</p>
+    <p class="sheet-hint">What this client is called in the list. Everything else below is the client's answers.</p>
     <input type="text" class="sheet-input" id="client-info-name" maxlength="300" placeholder="Legal or trading name">
-    <p class="sheet-label">Primary contact</p>
-    <input type="text" class="sheet-input" id="client-info-contact" maxlength="300" placeholder="Who to call">
-    <div class="sheet-actions">
-      <button type="button" class="btn btn-primary" id="client-info-save">Save details</button>
+
+    <div class="sheet-divider"></div>
+    <p class="sheet-label">Update information</p>
+    <p class="sheet-hint" id="client-info-fields-hint">Every question in this client's scope. Change what needs changing — only what you touch is sent.</p>
+    <div id="client-info-fields"></div>
+
+    <div class="sheet-actions sheet-actions-sticky">
+      <button type="button" class="btn btn-primary" id="client-info-save">Save changes</button>
       <span class="sheet-status" id="client-info-status"></span>
     </div>
 
@@ -973,10 +1010,28 @@
   async function patchClientProfile(id, fields) {
     if (window.storage.patchClient) return await window.storage.patchClient(id, fields);
     var rec = (await getClientRecord(id)) || { id: id, answers: {}, skipped: {}, unknown: {} };
-    Object.keys(fields).forEach(function (k) { rec[k] = fields[k]; });
+    var saved = 0;
+    Object.keys(fields).forEach(function (k) {
+      // answers is a patch, never a replacement. Assigning it wholesale
+      // would drop every answer the caller did not happen to be editing --
+      // the ORDS handler merges, so this has to as well or the two stores
+      // would not mean the same thing by the same request.
+      if (k === "answers") {
+        rec.answers = rec.answers || {};
+        Object.keys(fields.answers).forEach(function (qid) {
+          rec.answers[qid] = fields.answers[qid];
+          if (rec.skipped) delete rec.skipped[qid];
+          if (rec.unknown) delete rec.unknown[qid];
+          saved += 1;
+        });
+        return;
+      }
+      if (k === "source" || k === "actor") return;   // provenance, not a field
+      rec[k] = fields[k];
+    });
     rec.updatedAt = new Date().toISOString();
     await setClientRecord(rec);
-    return { ok: true };
+    return { ok: true, saved: saved, pendingApproval: 0 };
   }
 
   // source is the seam the assistant will use: a note it proposes is added
@@ -1250,6 +1305,107 @@
   // setup value -- or is lost.
   var infoSheet = document.getElementById("client-info");
   var infoClientId = null;   // which client the sheet is currently showing
+  var infoLoaded = null;     // the record as loaded, to diff edits against
+
+  // Renders every question in this client's scope as an editable field.
+  //
+  // Scope is computed from the RECORD's own qualifier answers, not from
+  // ALL_QUESTIONS, because the sheet is opened from the client list without
+  // loading that client into the questionnaire. Reading the module scope
+  // from whatever was last open would show one client the modules of
+  // another.
+  function renderAnswerFields(record) {
+    var wrap = document.getElementById("client-info-fields");
+    wrap.innerHTML = "";
+    var answers = record.answers || {};
+    var list = document.createElement("div");
+    list.className = "qf-list";
+
+    var lastEyebrow = null;
+    var shown = 0;
+    ALL_QUESTIONS.forEach(function (q) {
+      if (q.phase === "3" && !isInScopeFor(answers, q.module)) return;
+      shown += 1;
+      if (q.eyebrow !== lastEyebrow) {
+        lastEyebrow = q.eyebrow;
+        var head = document.createElement("p");
+        head.className = "qf-group-title";
+        head.textContent = q.eyebrow;
+        list.appendChild(head);
+      }
+
+      var value = answers[q.id];
+      var isSkipped = !!(record.skipped && record.skipped[q.id]);
+      var isUnknown = !!(record.unknown && record.unknown[q.id]);
+      var blank = value === null || value === undefined || String(value).trim() === "";
+
+      // Why a value is missing matters: "not known yet" was a decision and
+      // should not nag, a skip was a deferral, and a required blank is the
+      // thing someone actually needs to chase.
+      var flag = "";
+      if (isUnknown) flag = "Not known yet";
+      else if (blank && q.required) flag = "Still needed";
+      else if (blank && isSkipped) flag = "Skipped";
+
+      var row = document.createElement("div");
+      row.className = "qf";
+      row.innerHTML =
+        '<div class="qf-question"><span>' + escapeHtml(q.text) + '</span>' +
+        (flag ? '<span class="qf-flag' + (flag === "Still needed" ? " needed" : "") + '">' + escapeHtml(flag) + '</span>' : '') +
+        '</div>';
+
+      if (q.type === "yn") {
+        var yn = document.createElement("div");
+        yn.className = "qf-yn";
+        ["Yes", "No"].forEach(function (opt) {
+          var b = document.createElement("button");
+          b.type = "button";
+          b.textContent = opt;
+          if (value === opt) b.classList.add("selected");
+          // Locked questions (GL is always in scope) are shown but not
+          // editable, exactly as the questionnaire renders them.
+          if (q.locked) { b.disabled = true; b.style.opacity = "0.55"; b.style.cursor = "default"; }
+          b.addEventListener("click", function () {
+            Array.from(yn.children).forEach(function (c) { c.classList.remove("selected"); });
+            b.classList.add("selected");
+            row.dataset.value = opt;
+          });
+          yn.appendChild(b);
+        });
+        row.appendChild(yn);
+      } else {
+        var rule = TYPE_RULES[q.type];
+        var field;
+        if (rule) {
+          field = document.createElement("input");
+          field.type = "text";
+          field.setAttribute("inputmode", rule.inputMode);
+          field.placeholder = rule.placeholder;
+        } else {
+          field = document.createElement("textarea");
+          field.rows = 2;
+          field.placeholder = "Not answered yet";
+        }
+        field.className = "sheet-input";
+        field.maxLength = MAX_ANSWER_LEN;
+        field.value = blank ? "" : String(value);
+        field.addEventListener("input", function () { row.dataset.value = field.value; });
+        row.appendChild(field);
+      }
+
+      var err = document.createElement("div");
+      err.className = "qf-error";
+      row.appendChild(err);
+
+      row.dataset.qid = q.id;
+      row.dataset.original = blank ? "" : String(value);
+      list.appendChild(row);
+    });
+
+    wrap.appendChild(list);
+    document.getElementById("client-info-fields-hint").textContent =
+      shown + " questions in this client's scope. Change what needs changing — only what you touch is sent.";
+  }
 
   function setInfoStatus(message, ok) {
     var el = document.getElementById("client-info-status");
@@ -1347,10 +1503,11 @@
       showFatalError("Couldn't load that client's information — the record may have been deleted.");
       return;
     }
+    infoLoaded = record;
     document.getElementById("client-info-sub").textContent =
       record.companyName ? "Editing " + record.companyName : "Details and anything else worth recording";
     document.getElementById("client-info-name").value = record.companyName === "Unnamed client" ? "" : (record.companyName || "");
-    document.getElementById("client-info-contact").value = record.primaryContact || "";
+    renderAnswerFields(record);
     renderNotes(record.notes);
     infoSheet.classList.add("show");
     document.getElementById("client-info-name").focus();
@@ -1375,10 +1532,61 @@
   document.getElementById("client-info-save").addEventListener("click", safe(async function () {
     if (!infoClientId) return;
     var name = document.getElementById("client-info-name").value.trim();
-    var contact = document.getElementById("client-info-contact").value.trim();
     if (!name) { setInfoStatus("A company name is required.", false); return; }
+
+    // Only what changed. Re-sending an untouched answer would be compared
+    // against itself and cost nothing, but sending a hundred of them turns
+    // every save into a hundred comparisons -- and any that had drifted
+    // server-side would raise a change request nobody asked for.
+    var changed = {};
+    var invalid = 0;
+    var rows = document.querySelectorAll("#client-info-fields .qf");
+    Array.from(rows).forEach(function (row) {
+      var err = row.querySelector(".qf-error");
+      err.classList.remove("show");
+      if (row.dataset.value === undefined) return;          // untouched
+      var next = row.dataset.value;
+      if (next === row.dataset.original) return;            // typed back to the same thing
+
+      var q = ALL_QUESTIONS.find(function (x) { return x.id === row.dataset.qid; });
+      // Validated against the question's own rule, the same one the
+      // questionnaire applies. An edit here is not a lesser kind of answer.
+      var problem = validateAnswer({ type: q.type, required: q.required, answer: next, unknown: false });
+      if (problem) {
+        err.textContent = problem;
+        err.classList.add("show");
+        invalid += 1;
+        return;
+      }
+      changed[row.dataset.qid] = next;
+    });
+
+    if (invalid) {
+      setInfoStatus(invalid === 1 ? "One answer needs fixing before this can save."
+                                  : invalid + " answers need fixing before this can save.", false);
+      return;
+    }
+
     try {
-      await patchClientProfile(infoClientId, { companyName: name, primaryContact: contact });
+      var changedCount = Object.keys(changed).length;
+      var payload = { companyName: name };
+      if (changedCount) {
+        payload.answers = changed;
+        // Marked as consultant work: an edit made deliberately on this
+        // screen is a considered correction, not a value captured in the
+        // middle of a sales call, and the handoff should be able to tell
+        // those apart.
+        payload.source = "CONSULTANT";
+      }
+      // The roster's contact line comes from the record, but the fact
+      // itself lives in the contact-name answer -- one home per fact.
+      var contactAnswer = changed["INTAKE-002"] !== undefined
+        ? changed["INTAKE-002"]
+        : (infoLoaded && infoLoaded.answers ? infoLoaded.answers["INTAKE-002"] : null);
+      if (contactAnswer) payload.primaryContact = String(contactAnswer).slice(0, 300);
+
+      var result = await patchClientProfile(infoClientId, payload);
+      var contact = payload.primaryContact || "";
       // The roster is derived server-side under ORDS, so setClientIndex is
       // a no-op there; in-memory it is the only copy of the name, and
       // leaving it stale would show the old one until reload.
@@ -1393,7 +1601,27 @@
         currentClient.companyName = name;
         updateClientContextChip();
       }
-      setInfoStatus("Details saved.", true);
+
+      // Not every edit takes effect immediately, and saying "saved" when
+      // some of it is queued for review would be a lie the record later
+      // contradicts. Changing an answer that already had a value raises a
+      // change request; filling a blank applies straight away.
+      var pending = (result && result.pendingApproval) || 0;
+      var applied = (result && typeof result.saved === "number") ? result.saved : changedCount;
+      var parts = [];
+      if (applied) parts.push(applied + (applied === 1 ? " change saved" : " changes saved"));
+      if (pending) parts.push(pending + (pending === 1 ? " edit pending review" : " edits pending review"));
+      if (!parts.length) parts.push("Details saved");
+      setInfoStatus(parts.join(", ") + ".", true);
+
+      // Reload so the flags, and any edit that is only pending, show what
+      // the record actually holds rather than what was typed.
+      var refreshed = await getClientRecord(infoClientId);
+      if (refreshed) {
+        infoLoaded = refreshed;
+        renderAnswerFields(refreshed);
+        renderNotes(refreshed.notes);
+      }
     } catch (err) {
       setInfoStatus("Couldn't save those details: " + err.message, false);
     }
@@ -1490,6 +1718,21 @@
   // q.skipped, so it stops showing up here.
   function isGap(q) {
     return validateAnswer(q) !== null || (!!q.skipped && isBlank(q));
+  }
+
+  // What the follow-up chat chases, which is narrower than what is
+  // unanswered. Phase 1 is the client's own details -- who they are, who to
+  // call, what they run today -- and the client information sheet owns
+  // those now, as a form with every answer already in front of you.
+  // Chasing them here as well meant being asked for an email address one
+  // question at a time, mid-conversation, with no view of what was already
+  // recorded. They still count toward completion and still show as "Still
+  // needed" in the sheet; they are just not chased in the chat.
+  //
+  // Resuming a client is deliberately NOT filtered this way: reopening
+  // should land on the first thing missing, intake included.
+  function isChatGap(q) {
+    return q.phase !== "1" && isGap(q);
   }
 
   // Updates just the skip button + note for the currently-rendered question,
@@ -1712,7 +1955,7 @@
   function startChat() {
     if (chatStarted) return;
     chatStarted = true;
-    chatGaps = getActiveQuestions().filter(isGap);
+    chatGaps = getActiveQuestions().filter(isChatGap);
     chatStep = 0;
     var typing = addTyping();
     setTimeout(function () {
