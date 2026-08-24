@@ -389,6 +389,16 @@
     </div>
 
     <div class="sheet-divider"></div>
+    <p class="sheet-label">Configuration update</p>
+    <p class="sheet-hint">When something changes for this client — a new subsidiary, a module added, a system replaced — edit the answers above, then record what changed here and take a fresh configuration.</p>
+    <div id="client-info-updates"></div>
+    <textarea class="sheet-input" id="client-info-change-summary" rows="3" maxlength="2000" placeholder="What changed since the last configuration?"></textarea>
+    <div class="sheet-actions">
+      <button type="button" class="btn btn-primary" id="client-info-regenerate">Record update &amp; export configuration</button>
+      <span class="sheet-status" id="client-info-update-status"></span>
+    </div>
+
+    <div class="sheet-divider"></div>
     <p class="sheet-label">Additional information</p>
     <p class="sheet-hint">Anything the client told you that no question asked. Notes are added, never overwritten, and feed no configuration field — so they need no approval.</p>
     <div class="note-list" id="client-info-notes"></div>
@@ -673,6 +683,10 @@
       addNote: async function (id, text, source) {
         return await request("POST", "/clients/" + encodeURIComponent(id) + "/notes",
           JSON.stringify({ text: text, source: source || "CONSULTANT" }));
+      },
+      addConfigUpdate: async function (id, summary, answersChanged) {
+        return await request("POST", "/clients/" + encodeURIComponent(id) + "/updates",
+          JSON.stringify({ summary: summary, answersChanged: answersChanged || 0 }));
       },
       updateNote: async function (id, noteId, fields) {
         var body = { noteId: noteId };
@@ -1134,6 +1148,21 @@
     return { ok: true };
   }
 
+  async function recordConfigUpdate(id, summary, answersChanged) {
+    if (window.storage.addConfigUpdate) {
+      return await window.storage.addConfigUpdate(id, summary, answersChanged);
+    }
+    var rec = (await getClientRecord(id)) || { id: id, answers: {}, skipped: {}, unknown: {} };
+    rec.configUpdates = rec.configUpdates || [];
+    rec.configUpdates.unshift({
+      id: Date.now(), summary: summary, requestedBy: "insight-app",
+      answersChanged: answersChanged || 0, createdAt: new Date().toISOString()
+    });
+    rec.updatedAt = new Date().toISOString();
+    await setClientRecord(rec);
+    return { ok: true };
+  }
+
   async function updateClientNote(id, noteId, fields) {
     if (window.storage.updateNote) return await window.storage.updateNote(id, noteId, fields);
     var rec = await getClientRecord(id);
@@ -1389,6 +1418,7 @@
   var infoSheet = document.getElementById("client-info");
   var infoClientId = null;   // which client the sheet is currently showing
   var infoLoaded = null;     // the record as loaded, to diff edits against
+  var infoEditsSinceUpdate = 0;  // answers edited here since the last configuration
 
   // Renders every question in this client's scope as an editable field.
   //
@@ -1577,6 +1607,95 @@
     renderNotes(record ? record.notes : []);
   }
 
+  // ---- configuration updates ----
+  // The history of why this client's configuration was regenerated. Read
+  // only: an update is a record of something that happened, so there is
+  // nothing to edit and nothing to remove.
+  function renderConfigUpdates(updates) {
+    var wrap = document.getElementById("client-info-updates");
+    wrap.innerHTML = "";
+    if (!updates || !updates.length) {
+      wrap.innerHTML = '<div class="note-empty">No configuration updates recorded yet.</div>';
+      return;
+    }
+    var list = document.createElement("div");
+    list.className = "note-list";
+    updates.forEach(function (u) {
+      var when = u.createdAt ? new Date(u.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
+      var changed = Number(u.answersChanged) || 0;
+      var row = document.createElement("div");
+      row.className = "note-row";
+      row.innerHTML =
+        '<div class="note-text">' + escapeHtml(u.summary || "") + '</div>' +
+        '<div class="note-meta">' +
+          '<span class="note-tag">' + escapeHtml(when) + '</span>' +
+          '<span>' + (changed === 1 ? "1 answer changed" : changed + " answers changed") + '</span>' +
+        '</div>';
+      list.appendChild(row);
+    });
+    wrap.appendChild(list);
+  }
+
+  document.getElementById("client-info-regenerate").addEventListener("click", safe(async function () {
+    if (!infoClientId) return;
+    var statusEl = document.getElementById("client-info-update-status");
+    var box = document.getElementById("client-info-change-summary");
+    var summary = box.value.trim();
+    if (!summary) {
+      statusEl.textContent = "Say what changed first — that's the whole point of the record.";
+      statusEl.classList.remove("ok");
+      return;
+    }
+
+    try {
+      // Read the record fresh rather than exporting what is on screen. An
+      // edit to an answer that already had a value is pending until someone
+      // approves it, so the screen can show a value the record does not yet
+      // hold. A configuration is the artifact that leaves the building; it
+      // has to be what is of record.
+      var record = await getClientRecord(infoClientId);
+      if (!record) {
+        statusEl.textContent = "Couldn't read this client's record to export it.";
+        statusEl.classList.remove("ok");
+        return;
+      }
+
+      var previous = (record.configUpdates && record.configUpdates.length)
+        ? record.configUpdates[0].createdAt : (record.createdAt || null);
+      // Counted, not inferred: this is how many answers were actually
+      // edited through this sheet since it was opened or since the last
+      // update was recorded. Deriving it from timestamps would mean
+      // guessing, and an update that reshaped a client's structure needs to
+      // be distinguishable from one that fixed a phone number.
+      var changedSince = infoEditsSinceUpdate;
+
+      await recordConfigUpdate(infoClientId, summary, changedSince);
+      var refreshed = (await getClientRecord(infoClientId)) || record;
+
+      downloadConfiguration(refreshed, "database", {
+        configurationUpdate: {
+          summary: summary,
+          recordedAt: new Date().toISOString(),
+          answersChangedSincePreviousConfiguration: changedSince,
+          previousConfigurationAt: previous
+        }
+      });
+
+      box.value = "";
+      infoEditsSinceUpdate = 0;
+      infoLoaded = refreshed;
+      renderConfigUpdates(refreshed.configUpdates);
+      renderAnswerFields(refreshed);
+      statusEl.textContent = "Update recorded and configuration exported.";
+      statusEl.classList.add("ok");
+    } catch (err) {
+      statusEl.textContent = "Couldn't record that update: " + err.message;
+      statusEl.classList.remove("ok");
+    }
+  }));
+
+
+
   async function openClientInfo(id) {
     infoClientId = id;
     setInfoStatus("");
@@ -1587,6 +1706,10 @@
       return;
     }
     infoLoaded = record;
+    infoEditsSinceUpdate = 0;
+    document.getElementById("client-info-change-summary").value = "";
+    document.getElementById("client-info-update-status").textContent = "";
+    renderConfigUpdates(record.configUpdates);
     document.getElementById("client-info-sub").textContent =
       record.companyName ? "Editing " + record.companyName : "Details and anything else worth recording";
     document.getElementById("client-info-name").value = record.companyName === "Unnamed client" ? "" : (record.companyName || "");
@@ -1696,6 +1819,7 @@
       // some of it is queued for review would be a lie the record later
       // contradicts. Changing an answer that already had a value raises a
       // change request; filling a blank applies straight away.
+      infoEditsSinceUpdate += changedCount;
       var pending = (result && result.pendingApproval) || 0;
       var applied = (result && typeof result.saved === "number") ? result.saved : changedCount;
       var parts = [];
@@ -2254,20 +2378,29 @@
         createdAt: currentClient.createdAt || null
       };
     }
-    record = Object.assign({}, record, {
+    downloadConfiguration(record, source);
+  }));
+
+  // One exporter, used by the Summary screen and by the configuration-update
+  // section. A second copy would drift, and the two would then disagree about
+  // what a client's configuration actually is.
+  function downloadConfiguration(record, source, extra) {
+    var payload = Object.assign({}, record, {
       exportedAt: new Date().toISOString(),
       exportSource: source
-    });
-    var blob = new Blob([JSON.stringify(record, null, 2)], { type: "application/json" });
+    }, extra || {});
+    var blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url;
-    a.download = (record.companyName || "insight-client").replace(/[^a-z0-9-_]+/gi, "_") + "-export.json";
+    a.download = (payload.companyName || "insight-client").replace(/[^a-z0-9-_]+/gi, "_") +
+      (extra && extra.configurationUpdate ? "-configuration-update" : "-export") + ".json";
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
-  }));
+    return payload;
+  }
 
   // Crumbs are clickable for demo navigation. showScreen() only toggles
   // which screen is visible -- it doesn't populate one, so each target

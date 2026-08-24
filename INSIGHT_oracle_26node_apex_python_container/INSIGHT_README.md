@@ -129,6 +129,8 @@ DELETE /ords/admin/insight/clients/:client_id
 GET    /ords/admin/insight/clients/:client_id/notes
 POST   /ords/admin/insight/clients/:client_id/notes
 PUT    /ords/admin/insight/clients/:client_id/notes
+GET    /ords/admin/insight/clients/:client_id/updates
+POST   /ords/admin/insight/clients/:client_id/updates
 ```
 
 `GET clients/:client_id` reassembles the normalized rows into the exact
@@ -175,6 +177,14 @@ Each carries the same `source` vocabulary as an answer (`SALES_INTAKE`,
 distinguishable from one a consultant typed. `PUT` takes `noteId` in the
 body and edits or archives that note; archiving keeps the row, matching how
 `DELETE` on a client keeps its answers. Requires `V20`.
+
+The `updates` endpoints hold **configuration updates**: one row per time a
+client's configuration was regenerated, and why. Append-only -- there is no
+PUT, because an update is a record of something that happened. This is
+distinct from `insight_answer_change_requests`, which is one proposed edit to
+one answer awaiting approval; a configuration update is the business event
+those edits sat underneath. Without it, a configuration handed over in March
+and another in September differ for no recorded reason. Requires `V22`.
 
 ### How the front end selects its store
 At startup the app probes `GET /clients` once and picks a backing store for
@@ -280,6 +290,7 @@ sql/V17-V18__record_answer_provenance*.sql     -- record_answer gains p_source/p
 sql/V19__summary_counts_unknown.sql            -- insight_client_summary: "not known yet" counts as answered
 sql/V20__client_profile_and_notes.sql          -- insight_client_notes: additional information, kept apart from answers
 sql/V21__fill_blank_answers_without_approval.sql -- filling a blank is not an edit; repairs the answers that gated
+sql/V22__configuration_updates.sql             -- insight_config_updates: why a configuration was regenerated
 ```
 
 Design decisions, in short:
@@ -455,12 +466,16 @@ compile-checks the Python, and validates the compose file.
   target ITERIA_AI. `V7`-`V20` are the separate discovery-questionnaire
   backend (schema, approval workflow, documents, consolidated views,
   question seed data, locked-answer trigger, answer provenance, client
-  notes, and the blank-fill fix) -- see "Discovery questionnaire backend"
+  notes, the blank-fill fix, and configuration updates) -- see "Discovery
+  questionnaire backend"
   above, also Flyway-tracked. `flyway.conf` holds
   the shared Flyway settings (see "Applying migrations" above).
-  `INSIGHT_06_ords_module.sql` (ADMIN, ORDS metadata) and
-  `INSIGHT_ADMIN_cleanup_old_objects.sql` are intentionally **not**
-  Flyway-tracked -- one-off/environment-specific, run by hand.
+  `INSIGHT_06_ords_module.sql` (ADMIN, ORDS metadata),
+  `INSIGHT_ADMIN_cleanup_old_objects.sql` and
+  `INSIGHT_ADMIN_reset_client_answers.sql` are intentionally **not**
+  Flyway-tracked -- one-off/environment-specific, run by hand. The reset
+  script in particular destroys data on purpose, which is the opposite of
+  something every environment should run once without being asked.
 - `apex/`: static HTML + JS for the APEX page / standalone browser use.
 - `python/`: standalone document-ingestion script (`INSIGHT_oracle_doc_ingestion.py`)
   + `INSIGHT_requirements.txt` -- run directly with python3 against either

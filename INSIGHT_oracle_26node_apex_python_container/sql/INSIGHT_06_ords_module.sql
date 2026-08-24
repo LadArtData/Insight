@@ -15,6 +15,8 @@ SET DEFINE OFF
 --   GET    /ords/admin/insight/clients/:id/notes      additional information
 --   POST   /ords/admin/insight/clients/:id/notes      add a note
 --   PUT    /ords/admin/insight/clients/:id/notes      edit or archive a note
+--   GET    /ords/admin/insight/clients/:id/updates    configuration updates
+--   POST   /ords/admin/insight/clients/:id/updates    record one
 --
 -- This replaces the earlier insight-hooks and insight-questionnaire
 -- modules, which split one product across two base paths and two entries in
@@ -34,8 +36,9 @@ SET DEFINE OFF
 -- surface. Both parameters are defaulted, so the reverse order is safe:
 -- an older module keeps working against the newer package.
 --
--- V20 matters for the notes endpoints, which read and write
--- insight_client_notes directly. Without it those three handlers fail the
+-- V20 and V22 matter for the notes and configuration-update endpoints,
+-- which read and write insight_client_notes and insight_config_updates
+-- directly. Without it those three handlers fail the
 -- same opaque way -- but only those three: each handler compiles on its own
 -- at request time, so the rest of the module is unaffected. The notes block
 -- inside GET clients/:client_id is deliberately dynamic for that reason:
@@ -388,6 +391,7 @@ END;');
   l_name      VARCHAR2(300);
   l_contact   VARCHAR2(300);
   l_notes     CLOB;
+  l_updates   CLOB;
   l_created   VARCHAR2(30);
   l_updated   VARCHAR2(30);
   l_answers   CLOB;
@@ -480,6 +484,25 @@ BEGIN
       INTO l_notes USING l_client_id;
   EXCEPTION WHEN OTHERS THEN l_notes := NULL; END;
 
+  -- Same reasoning as the notes block above: dynamic, so a database without
+  -- V22 loses the update history rather than the whole client record.
+  BEGIN
+    EXECUTE IMMEDIATE
+      ''SELECT JSON_ARRAYAGG(
+                 JSON_OBJECT(
+                   ''''id''''             VALUE update_id,
+                   ''''summary''''        VALUE change_summary,
+                   ''''requestedBy''''    VALUE requested_by,
+                   ''''answersChanged'''' VALUE answers_changed,
+                   ''''createdAt''''      VALUE TO_CHAR(created_at AT TIME ZONE ''''UTC'''', ''''YYYY-MM-DD"T"HH24:MI:SS"Z"'''')
+                   RETURNING CLOB)
+                 ORDER BY created_at DESC
+                 RETURNING CLOB)
+         FROM iteria_ai.insight_config_updates
+        WHERE client_id = :1''
+      INTO l_updates USING l_client_id;
+  EXCEPTION WHEN OTHERS THEN l_updates := NULL; END;
+
   -- Built by JSON_OBJECT rather than string concatenation: it escapes the
   -- values, and it avoids JSON_SCALAR, which does not exist before 21c.
   SELECT JSON_OBJECT(
@@ -487,6 +510,7 @@ BEGIN
            ''companyName''    VALUE l_name,
            ''primaryContact'' VALUE l_contact,
            ''notes''          VALUE NVL(l_notes, TO_CLOB(''[]'')) FORMAT JSON,
+           ''configUpdates''  VALUE NVL(l_updates, TO_CLOB(''[]'')) FORMAT JSON,
            ''answers''     VALUE NVL(l_answers, TO_CLOB(''{}'')) FORMAT JSON,
            ''skipped''     VALUE NVL(l_skipped, TO_CLOB(''{}'')) FORMAT JSON,
            ''unknown''     VALUE NVL(l_unknownm, TO_CLOB(''{}'')) FORMAT JSON,
@@ -976,6 +1000,168 @@ BEGIN
 
   COMMIT;
   HTP.P(''{"ok":true,"noteId":'' || l_note_id || ''}'');
+EXCEPTION WHEN OTHERS THEN
+  ROLLBACK;
+  :status := 500;
+  HTP.P(''{"ok":false,"error":"'' || REPLACE(SUBSTR(SQLERRM,1,300),''"'',''`'') || ''"}'');
+END;');
+
+  ----------------------------------------------------------------------------
+  -- /insight/clients/:client_id/updates
+  --
+  -- Why a client''s configuration was regenerated. One row per update, never
+  -- edited and never removed: the history is the point. A configuration
+  -- handed over in March and another in September differ for a reason, and
+  -- this is where that reason lives.
+  --
+  -- Requires V22.
+  ----------------------------------------------------------------------------
+  ORDS.DEFINE_TEMPLATE(
+      p_module_name    => 'insight',
+      p_pattern        => 'clients/:client_id/updates',
+      p_priority       => 0,
+      p_etag_type      => 'NONE',
+      p_etag_query     => NULL,
+      p_comments       => 'Configuration update history for one client');
+
+  ORDS.DEFINE_HANDLER(
+      p_module_name    => 'insight',
+      p_pattern        => 'clients/:client_id/updates',
+      p_method         => 'GET',
+      p_source_type    => 'plsql/block',
+      p_mimes_allowed  => NULL,
+      p_comments       => 'Configuration updates for a client, newest first',
+      p_source         =>
+'DECLARE
+  l_api_key   VARCHAR2(200);
+  l_req_key   VARCHAR2(200) := :api_key;
+  l_client_id VARCHAR2(40)  := :client_id;
+  l_out       CLOB;
+  -- HTP.P is declared for VARCHAR2; a CLOB is PLS-00306, a compile error
+  -- this block''s EXCEPTION clause can never catch. Emit in chunks.
+  PROCEDURE emit(p_clob IN CLOB) IS
+    l_len PLS_INTEGER;
+    l_off PLS_INTEGER := 1;
+    l_amt PLS_INTEGER := 8000;
+  BEGIN
+    IF p_clob IS NULL THEN RETURN; END IF;
+    l_len := DBMS_LOB.GETLENGTH(p_clob);
+    WHILE l_off <= l_len LOOP
+      HTP.PRN(DBMS_LOB.SUBSTR(p_clob, l_amt, l_off));
+      l_off := l_off + l_amt;
+    END LOOP;
+  END emit;
+BEGIN
+  -- Dynamic SQL on purpose. A static reference to api_configuration makes
+  -- the whole handler fail to COMPILE if that table is absent, and a
+  -- compile error cannot be caught by the block''s own EXCEPTION clause --
+  -- ORDS just returns ORDS-25001 / HTTP 555 with no usable detail. Bound
+  -- at run time instead, a missing table is an ordinary exception, and
+  -- "no key table" degrades to "no key required" rather than a dead API.
+  BEGIN
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.insight_api_config WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+      INTO l_api_key;
+  EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
+  IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
+    :status := 403; HTP.P(''{"ok":false,"error":"unauthorized"}''); RETURN;
+  END IF;
+
+  SELECT JSON_ARRAYAGG(
+           JSON_OBJECT(
+             ''id''             VALUE update_id,
+             ''summary''        VALUE change_summary,
+             ''requestedBy''    VALUE requested_by,
+             ''answersChanged'' VALUE answers_changed,
+             ''createdAt''      VALUE TO_CHAR(created_at AT TIME ZONE ''UTC'', ''YYYY-MM-DD"T"HH24:MI:SS"Z"'')
+             RETURNING CLOB)
+           ORDER BY created_at DESC
+           RETURNING CLOB)
+    INTO l_out
+    FROM iteria_ai.insight_config_updates
+   WHERE client_id = l_client_id;
+
+  emit(NVL(l_out, TO_CLOB(''[]'')));
+EXCEPTION WHEN OTHERS THEN
+  :status := 500;
+  HTP.P(''{"ok":false,"error":"'' || REPLACE(SUBSTR(SQLERRM,1,300),''"'',''`'') || ''"}'');
+END;');
+
+  ORDS.DEFINE_HANDLER(
+      p_module_name    => 'insight',
+      p_pattern        => 'clients/:client_id/updates',
+      p_method         => 'POST',
+      p_source_type    => 'plsql/block',
+      p_mimes_allowed  => 'application/json',
+      p_comments       => 'Records one configuration update. Append-only -- there is no PUT',
+      p_source         =>
+'DECLARE
+  l_api_key   VARCHAR2(200);
+  l_req_key   VARCHAR2(200) := :api_key;
+  l_client_id VARCHAR2(40)  := :client_id;
+  l_body      CLOB          := :body_text;
+  l_doc       JSON_OBJECT_T;
+  l_summary   CLOB;
+  l_actor     VARCHAR2(100);
+  l_changed   NUMBER;
+  l_upd_id    NUMBER;
+  l_exists    NUMBER;
+BEGIN
+  -- Dynamic SQL on purpose. A static reference to api_configuration makes
+  -- the whole handler fail to COMPILE if that table is absent, and a
+  -- compile error cannot be caught by the block''s own EXCEPTION clause --
+  -- ORDS just returns ORDS-25001 / HTTP 555 with no usable detail. Bound
+  -- at run time instead, a missing table is an ordinary exception, and
+  -- "no key table" degrades to "no key required" rather than a dead API.
+  BEGIN
+    EXECUTE IMMEDIATE ''SELECT api_key FROM iteria_ai.insight_api_config WHERE is_active = ''''Y'''' AND ROWNUM = 1''
+      INTO l_api_key;
+  EXCEPTION WHEN OTHERS THEN l_api_key := NULL; END;
+  IF l_api_key IS NOT NULL AND NVL(l_req_key,''__none__'') != l_api_key THEN
+    :status := 403; HTP.P(''{"ok":false,"error":"unauthorized"}''); RETURN;
+  END IF;
+
+  IF l_body IS NULL OR DBMS_LOB.GETLENGTH(l_body) = 0 THEN
+    :status := 400; HTP.P(''{"ok":false,"error":"request body is required"}''); RETURN;
+  END IF;
+
+  BEGIN
+    l_doc := JSON_OBJECT_T.parse(l_body);
+  EXCEPTION WHEN OTHERS THEN
+    :status := 400; HTP.P(''{"ok":false,"error":"request body is not valid JSON"}''); RETURN;
+  END;
+
+  l_summary := l_doc.get_String(''summary'');
+  -- An update with no stated reason is the exact thing this endpoint exists
+  -- to prevent, so it is refused rather than stored empty.
+  IF l_summary IS NULL OR DBMS_LOB.GETLENGTH(l_summary) = 0 THEN
+    :status := 400; HTP.P(''{"ok":false,"error":"a summary of what changed is required"}''); RETURN;
+  END IF;
+
+  l_actor := SUBSTR(NVL(l_doc.get_String(''actor''), ''insight-app''), 1, 100);
+  BEGIN
+    l_changed := l_doc.get_Number(''answersChanged'');
+  EXCEPTION WHEN OTHERS THEN l_changed := NULL; END;
+  IF l_changed IS NULL OR l_changed < 0 THEN l_changed := 0; END IF;
+
+  SELECT COUNT(*) INTO l_exists
+    FROM iteria_ai.insight_clients
+   WHERE client_id = l_client_id;
+  IF l_exists = 0 THEN
+    :status := 404; HTP.P(''{"ok":false,"error":"client not found"}''); RETURN;
+  END IF;
+
+  INSERT INTO iteria_ai.insight_config_updates
+         (client_id, change_summary, requested_by, answers_changed)
+  VALUES (l_client_id, l_summary, l_actor, l_changed)
+  RETURNING update_id INTO l_upd_id;
+
+  UPDATE iteria_ai.insight_clients
+     SET updated_at = CURRENT_TIMESTAMP
+   WHERE client_id = l_client_id;
+
+  COMMIT;
+  :status := 201;
+  HTP.P(''{"ok":true,"updateId":'' || l_upd_id || ''}'');
 EXCEPTION WHEN OTHERS THEN
   ROLLBACK;
   :status := 500;

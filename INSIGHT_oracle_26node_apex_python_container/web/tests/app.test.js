@@ -555,6 +555,32 @@ function statefulFakeOrds() {
       return respond(200, list);
     }
 
+    // /clients/:id/updates -- append-only, exactly like the real handler:
+    // there is no PUT, because an update is a record of something that
+    // happened.
+    const updMatch = path.match(/^\/clients\/([^/]+)\/updates$/);
+    if (updMatch) {
+      const uid = decodeURIComponent(updMatch[1]);
+      const client = clients.get(uid);
+      if (!client) return respond(404, { ok: false, error: "client not found" });
+      client.configUpdates = client.configUpdates || [];
+      if (method === "GET") return respond(200, client.configUpdates);
+      if (method === "POST") {
+        const body = JSON.parse(opts.body);
+        if (!body.summary) {
+          return respond(400, { ok: false, error: "a summary of what changed is required" });
+        }
+        const entry = {
+          id: nextNoteId++, summary: body.summary, requestedBy: "insight-app",
+          answersChanged: body.answersChanged || 0, createdAt: now,
+        };
+        client.configUpdates.unshift(entry);
+        client.updatedAt = now;
+        return respond(201, { ok: true, updateId: entry.id });
+      }
+      return respond(404, { ok: false, error: "no route" });
+    }
+
     // /clients/:id/notes -- mirrors the three handlers in
     // sql/INSIGHT_06_ords_module.sql, including their archive-not-delete
     // behaviour, so a test that passes here would pass against Oracle.
@@ -600,6 +626,7 @@ function statefulFakeOrds() {
       if (!c) return respond(404, { ok: false, error: "client not found" });
       return respond(200, { id, companyName: c.companyName, primaryContact: c.primaryContact,
         notes: (c.notes || []).filter((x) => !x.archived),
+        configUpdates: c.configUpdates || [],
         answers: c.answers, skipped: c.skipped, createdAt: c.createdAt, updatedAt: c.updatedAt });
     }
     if (method === "PUT") {
@@ -627,6 +654,7 @@ function statefulFakeOrds() {
         primaryContact: Object.prototype.hasOwnProperty.call(body, "primaryContact")
           ? body.primaryContact : existing.primaryContact,
         notes: existing.notes || [],
+        configUpdates: existing.configUpdates || [],
         answers, skipped: body.skipped || existing.skipped,
         createdAt: existing.createdAt, updatedAt: now,
       });
@@ -1708,5 +1736,151 @@ test("quality: the chat holds answers to the same bar", async () => {
   const body = byId(win, "chat-body").textContent;
   assert.doesNotMatch(body, /covers the required gaps/,
     "nonsense in the chat must not count as filling the gap");
+  win.close();
+});
+
+// ---------------------------------------------------------------------------
+// Configuration updates: why a client's configuration was regenerated.
+// ---------------------------------------------------------------------------
+
+// jsdom has no download machinery and its Blob has no text(), so capture
+// the JSON on its way into the Blob rather than trying to read it back out.
+function captureDownloads(win) {
+  const files = [];
+  const OriginalBlob = win.Blob;
+  win.Blob = function (parts, opts) {
+    files.push(String(parts[0]));
+    return new OriginalBlob(parts, opts);
+  };
+  win.URL.createObjectURL = () => "blob:mock";
+  win.URL.revokeObjectURL = () => {};
+  win.HTMLAnchorElement.prototype.click = function () {};
+  return files;
+}
+
+test("config update: recording one requires saying what changed", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-cfg");
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-cfg");
+
+  byId(win, "client-info-regenerate").click();
+  await wait(60);
+
+  assert.equal((server.clients.get("c-cfg").configUpdates || []).length, 0,
+    "an update with no stated reason is the thing this prevents");
+  assert.match(byId(win, "client-info-update-status").textContent, /what changed/i);
+  win.close();
+});
+
+test("config update: recording one stores it and exports a configuration", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-cfg");
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  const files = captureDownloads(win);
+  await openInfoSheet(win, "c-cfg");
+
+  byId(win, "client-info-change-summary").value = "Acquired a subsidiary in Ohio; adding Accounts Receivable.";
+  byId(win, "client-info-regenerate").click();
+  await wait(120);
+
+  const updates = server.clients.get("c-cfg").configUpdates;
+  assert.equal(updates.length, 1);
+  assert.match(updates[0].summary, /Acquired a subsidiary/);
+  assert.equal(files.length, 1, "a configuration should have been exported");
+  assert.match(byId(win, "client-info-update-status").textContent, /recorded and .*exported/i);
+  assert.equal(byId(win, "client-info-change-summary").value, "", "the box clears after recording");
+  win.close();
+});
+
+test("config update: the exported file carries the reason and the previous configuration date", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-cfg");
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  const files = captureDownloads(win);
+  await openInfoSheet(win, "c-cfg");
+
+  byId(win, "client-info-change-summary").value = "Replaced their ERP with EBS 12.2.";
+  byId(win, "client-info-regenerate").click();
+  await wait(120);
+
+  const payload = JSON.parse(files[0]);
+  assert.match(payload.configurationUpdate.summary, /Replaced their ERP/);
+  assert.ok(payload.configurationUpdate.recordedAt, "when it was recorded");
+  assert.ok("previousConfigurationAt" in payload.configurationUpdate,
+    "which configuration this one supersedes");
+  // The answers still travel: this is a configuration, not just a note.
+  assert.ok(payload.answers, "the client's answers are the configuration");
+  win.close();
+});
+
+test("config update: counts the answers actually edited, not the whole record", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-cfg", { answers: { "QUAL-GL": "Yes", "INTAKE-001": "Meridian County Government" } });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  captureDownloads(win);
+  await openInfoSheet(win, "c-cfg");
+
+  typeInto(win, "INTAKE-002", "D. Okafor");
+  byId(win, "client-info-save").click();
+  await wait(100);
+
+  byId(win, "client-info-change-summary").value = "New primary contact.";
+  byId(win, "client-info-regenerate").click();
+  await wait(120);
+
+  const updates = server.clients.get("c-cfg").configUpdates;
+  assert.equal(updates[0].answersChanged, 1,
+    "one answer was edited -- an update that reshapes a client must look different from this");
+  win.close();
+});
+
+test("config update: history shows previous updates, newest first", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-cfg", {
+    configUpdates: [
+      { id: 2, summary: "Added Cash Management.", requestedBy: "insight-app", answersChanged: 6, createdAt: "2026-07-01T10:00:00Z" },
+      { id: 1, summary: "Initial configuration.", requestedBy: "insight-app", answersChanged: 40, createdAt: "2026-03-01T10:00:00Z" },
+    ],
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-cfg");
+
+  const rows = byId(win, "client-info-updates").querySelectorAll(".note-row");
+  assert.equal(rows.length, 2);
+  assert.match(rows[0].textContent, /Added Cash Management/);
+  assert.match(rows[0].textContent, /6 answers changed/);
+  assert.match(rows[1].textContent, /Initial configuration/);
+  win.close();
+});
+
+test("config update: works with no backend", async () => {
+  const dom = await bootApp((win) => { win.fetch = () => Promise.reject(new Error("offline")); });
+  const win = dom.window;
+  await wait(60);
+  byId(win, "btn-new-client").click();
+  await wait(30);
+  fillText(win, "Harbor Freight Logistics, Harbor");
+  await clickNext(win);
+  await wait(40);
+  captureDownloads(win);
+
+  await openInfoSheet(win, null);
+  byId(win, "client-info-change-summary").value = "Adding Fixed Assets next quarter.";
+  byId(win, "client-info-regenerate").click();
+  await wait(120);
+
+  assert.match(byId(win, "client-info-updates").textContent, /Adding Fixed Assets/,
+    "the in-memory store should keep the history on the record");
   win.close();
 });
