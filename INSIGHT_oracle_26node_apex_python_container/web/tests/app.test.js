@@ -340,8 +340,14 @@ test("resume: reopening a saved client restores position at the first unanswered
   await wait(10);
   byId(win, "records-list-area").querySelector('[data-open]').click();
   await wait(10);
-  assert.equal(progressLabel(win), (INTAKE_COUNT + 2) + " / " + GL_ONLY_DECK);
+  // Asserted by what is on screen rather than by index: reopening drops the
+  // six questions the client file owns, so the numbering shifts while the
+  // behaviour under test -- landing on the first thing missing -- does not.
   assert.match(byId(win, "q-eyebrow").textContent, /Phase 2/);
+  assert.match(byId(win, "q-text").textContent, /vendor\/supplier invoices/i,
+    "the first qualifier after the locked one");
+  assert.equal(Number(progressLabel(win).split("/")[1].trim()),
+    GL_ONLY_DECK - CLIENT_FILE_COUNT);
 });
 
 test("crumb navigation: clicking the Questionnaire crumb re-renders the in-progress question", async () => {
@@ -354,7 +360,8 @@ test("crumb navigation: clicking the Questionnaire crumb re-renders the in-progr
   win.document.querySelector('.crumb[data-crumb="questionnaire"]').click();
   await wait(10);
   assert.ok(byId(win, "screen-questionnaire").classList.contains("active"));
-  assert.equal(progressLabel(win), (INTAKE_COUNT + 1) + " / " + GL_ONLY_DECK);
+  assert.equal(progressLabel(win), (INTAKE_COUNT + 1) + " / " + GL_ONLY_DECK,
+    "a brand-new client is still asked the whole deck");
 });
 
 test("D1 regression: leaving chat before the auto-advance timer fires does not force-navigate back to Summary", async () => {
@@ -1063,31 +1070,6 @@ function typeInto(win, qid, value) {
   field.dispatchEvent(new win.Event("input"));
 }
 
-test("client info: an empty company name is rejected before any request", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-info");
-  const calls = [];
-  const dom = await bootApp((win) => {
-    win.fetch = (url, opts) => {
-      calls.push({ method: (opts && opts.method) || "GET", url: String(url) });
-      return server.fetchImpl(url, opts);
-    };
-  });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-info");
-
-  const before = calls.filter((c) => c.method === "PUT").length;
-  byId(win, "client-info-name").value = "   ";
-  byId(win, "client-info-save").click();
-  await wait(40);
-
-  assert.equal(calls.filter((c) => c.method === "PUT").length, before,
-    "nothing should be sent for an empty name");
-  assert.match(byId(win, "client-info-status").textContent, /required/i);
-  win.close();
-});
-
 test("client info: adding a note POSTs it and it renders in the list", async () => {
   const server = statefulFakeOrds();
   seedClient(server, "c-info");
@@ -1213,65 +1195,6 @@ test("client info: works with no backend, keeping notes on the in-memory record"
   win.close();
 });
 
-test("client info: a name set in the sheet is not overwritten by INTAKE-001 on the next save", async () => {
-  const server = statefulFakeOrds();
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  byId(win, "btn-new-client").click();
-  await wait(30);
-  fillText(win, "Meridian County Government, Meridian");
-  await clickNext(win);
-  await wait(60);
-  const id = Array.from(server.clients.keys())[0];
-
-  await openInfoSheet(win, id);
-  byId(win, "client-info-name").value = "Meridian County Water District";
-  byId(win, "client-info-save").click();
-  await wait(60);
-  byId(win, "client-info-close").click();
-  await wait(40);
-
-  // Back into the questionnaire, answer another question, forcing a save.
-  byId(win, "records-list-area").querySelector(`[data-open="${id}"]`).click();
-  await wait(40);
-  fillValid(win, "R. Alvarez");
-  await clickNext(win);
-  await wait(60);
-
-  assert.equal(server.clients.get(id).companyName, "Meridian County Water District",
-    "the deliberately set name must survive a questionnaire save");
-  win.close();
-});
-
-// ---------------------------------------------------------------------------
-// AI Follow-Up chat: answers have to reach the record, and have to obey the
-// same format rules the questionnaire enforces.
-// ---------------------------------------------------------------------------
-
-// Walks the whole deck, skipping exactly one numeric question outside
-// Phase 1, so the chat later has one gap and that gap is a typed one.
-// Phase 1 is excluded deliberately: the chat no longer chases it, so a
-// skipped intake question would produce no gap at all.
-async function finishDeckSkippingOneNumeric(win) {
-  let skipped = false;
-  for (let i = 0; i < 120; i++) {
-    if (byId(win, "screen-chat").classList.contains("active")) break;
-    const el = win.document.querySelector(".q-input");
-    const intake = /Client Intake/.test(byId(win, "q-eyebrow").textContent);
-    if (!skipped && !intake && el && el.getAttribute("inputmode") === "numeric") {
-      skipped = true;
-      await clickSkip(win);
-      continue;
-    }
-    const yn = win.document.querySelectorAll(".yn-btn");
-    if (yn.length) clickYn(win, "Yes");
-    else fillValid(win, "A considered answer for question " + i + ".");
-    await clickNext(win);
-  }
-  assert.ok(skipped, "expected a numeric question outside Phase 1");
-}
-
 test("chat: each answer is saved as it is given, not only when the chat ends", async () => {
   const server = statefulFakeOrds();
   const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
@@ -1325,6 +1248,29 @@ test("chat: a gap answer lands as a real answer, not a pending change request", 
     "filling a blank answer must apply directly, not queue for approval");
   win.close();
 });
+
+// Walks the whole deck, skipping exactly one numeric question outside
+// Phase 1, so the chat later has one gap and that gap is a typed one.
+// Phase 1 is excluded deliberately: the chat no longer chases it, so a
+// skipped intake question would produce no gap at all.
+async function finishDeckSkippingOneNumeric(win) {
+  let skipped = false;
+  for (let i = 0; i < 120; i++) {
+    if (byId(win, "screen-chat").classList.contains("active")) break;
+    const el = win.document.querySelector(".q-input");
+    const intake = /Client Intake/.test(byId(win, "q-eyebrow").textContent);
+    if (!skipped && !intake && el && el.getAttribute("inputmode") === "numeric") {
+      skipped = true;
+      await clickSkip(win);
+      continue;
+    }
+    const yn = win.document.querySelectorAll(".yn-btn");
+    if (yn.length) clickYn(win, "Yes");
+    else fillValid(win, "A considered answer for question " + i + ".");
+    await clickNext(win);
+  }
+  assert.ok(skipped, "expected a numeric question outside Phase 1");
+}
 
 test("chat: an answer that breaks the question's format is refused and re-asked", async () => {
   const dom = await bootApp();
@@ -1598,6 +1544,7 @@ test("config update: history shows previous updates, newest first", async () => 
 
 // Derived from the source, like every other count in this file.
 const INTAKE_ONLY_COUNT = (HTML.match(/intakeOnly: true/g) || []).length;
+const CLIENT_FILE_COUNT = (HTML.match(/clientFile: true/g) || []).length;
 
 test("update run: asks fewer questions than intake, and says why", async () => {
   const server = statefulFakeOrds();
@@ -1653,7 +1600,10 @@ test("update run: an intake run still asks everything", async () => {
   byId(win, "records-list-area").querySelector('[data-open="c-upd"]').click();
   await wait(60);
 
-  assert.equal(Number(progressLabel(win).split("/")[1].trim()), GL_ONLY_DECK,
+  // An intake run asks everything except the six the client file owns --
+  // those are asked once, when the client is created, and never again.
+  assert.equal(Number(progressLabel(win).split("/")[1].trim()),
+    GL_ONLY_DECK - CLIENT_FILE_COUNT,
     "opening a client normally is still an intake run");
   assert.equal(byId(win, "q-mode-note").classList.contains("show"), false);
   win.close();
@@ -2001,48 +1951,6 @@ test("limits: the chat holds answers to the same 250 characters", async () => {
 // the answers; the Summary is where a configuration comes out.
 // ---------------------------------------------------------------------------
 
-test("client file: holds no questions at all", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-file", {
-    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
-  });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-file");
-
-  // It held six of the questionnaire's own questions, which made "one home
-  // per question" untrue -- it was a shorter copy of the same deck.
-  assert.equal(byId(win, "client-info").querySelectorAll(".qf").length, 0);
-  assert.equal(win.document.getElementById("client-info-fields"), null);
-  win.close();
-});
-
-test("client file: renaming the record is not answering a question", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-file", { answers: { "QUAL-GL": "Yes", "INTAKE-001": "Meridian County Government" } });
-  const calls = [];
-  const dom = await bootApp((win) => {
-    win.fetch = (url, opts) => {
-      if ((opts || {}).method === "PUT") calls.push(JSON.parse(opts.body));
-      return server.fetchImpl(url, opts);
-    };
-  });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-file");
-
-  byId(win, "client-info-name").value = "Meridian County Water District";
-  byId(win, "client-info-save").click();
-  await wait(80);
-
-  assert.equal(calls[0].companyName, "Meridian County Water District");
-  assert.ok(!("answers" in calls[0]), "the list label is not an answer");
-  assert.equal(server.clients.get("c-file").answers["INTAKE-001"], "Meridian County Government",
-    "and INTAKE-001 is untouched by it");
-  win.close();
-});
-
 test("client file: the configuration is taken from the Summary, not from here", async () => {
   const server = statefulFakeOrds();
   seedClient(server, "c-file", { answers: { "QUAL-GL": "Yes" } });
@@ -2140,5 +2048,118 @@ test("summary: the first configuration needs no reason", async () => {
   assert.equal((server.clients.get("c-sum").configUpdates || []).length, 0,
     "and records nothing, because nothing has changed from anything yet");
   assert.match(byId(win, "summary-export-status").textContent, /exported/i);
+  win.close();
+});
+
+// ---------------------------------------------------------------------------
+// The six basic details: asked once while the client is being created, then
+// owned by the client file.
+// ---------------------------------------------------------------------------
+
+test("basics: a brand-new client is asked them", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await wait(30);
+
+  // The record comes into existence by being asked.
+  assert.match(byId(win, "q-text").textContent, /full legal company name/i);
+  assert.equal(Number(progressLabel(win).split("/")[1].trim()), GL_ONLY_DECK);
+  win.close();
+});
+
+test("basics: reopening a client never asks them again", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-basic", {
+    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  byId(win, "nav-clients").click();
+  await wait(40);
+  byId(win, "records-list-area").querySelector('[data-open="c-basic"]').click();
+  await wait(60);
+
+  const shown = Number(progressLabel(win).split("/")[1].trim());
+  assert.equal(shown, GL_ONLY_DECK - CLIENT_FILE_COUNT,
+    "the six move to the client file permanently");
+  assert.doesNotMatch(byId(win, "q-text").textContent, /full legal company name/i);
+  win.close();
+});
+
+test("basics: the client file holds exactly those six, editable", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-basic", { answers: { "QUAL-GL": "Yes", "INTAKE-002C": "r.alvarez@meridian.gov" } });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-basic");
+
+  const rows = byId(win, "client-info-fields").querySelectorAll(".qf");
+  assert.equal(rows.length, CLIENT_FILE_COUNT);
+  assert.equal(qfField(win, "INTAKE-002C").value, "r.alvarez@meridian.gov");
+  assert.equal(qfField(win, "INTAKE-002C").getAttribute("inputmode"), "email",
+    "each detail keeps its own type");
+  assert.equal(qfRow(win, "GL-001"), null, "and nothing from the discovery deck");
+  win.close();
+});
+
+test("basics: a detail still has to pass its own format rule", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-basic", { answers: { "QUAL-GL": "Yes" } });
+  const calls = [];
+  const dom = await bootApp((win) => {
+    win.fetch = (url, opts) => {
+      calls.push((opts || {}).method || "GET");
+      return server.fetchImpl(url, opts);
+    };
+  });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-basic");
+
+  const before = calls.filter((m) => m === "PUT").length;
+  typeInto(win, "INTAKE-002C", "not-an-address");
+  byId(win, "client-info-save").click();
+  await wait(60);
+
+  assert.equal(calls.filter((m) => m === "PUT").length, before, "nothing sent");
+  assert.match(qfRow(win, "INTAKE-002C").querySelector(".qf-error").textContent, /email/i);
+  win.close();
+});
+
+test("basics: the list name follows the company name", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-basic", {
+    answers: { "QUAL-GL": "Yes", "INTAKE-001": "Meridian County Government, Meridian" },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-basic");
+
+  typeInto(win, "INTAKE-001", "Meridian County Water District, Meridian Water");
+  byId(win, "client-info-save").click();
+  await wait(120);
+
+  // One thing to type rather than two that can disagree.
+  assert.equal(server.clients.get("c-basic").companyName, "Meridian County Water District");
+  assert.equal(server.clients.get("c-basic").answers["INTAKE-001"],
+    "Meridian County Water District, Meridian Water");
+  win.close();
+});
+
+test("basics: saving nothing says so rather than pretending", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-basic", { answers: { "QUAL-GL": "Yes" } });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-basic");
+
+  byId(win, "client-info-save").click();
+  await wait(60);
+  assert.match(byId(win, "client-info-status").textContent, /nothing changed/i);
   win.close();
 });

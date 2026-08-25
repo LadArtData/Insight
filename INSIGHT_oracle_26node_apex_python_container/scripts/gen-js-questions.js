@@ -55,6 +55,9 @@ function renderQuestion(q) {
   // update, so writing askOnUpdate on all hundred would be noise around the
   // eighteen that matter.
   if (!q.ask_on_update) parts.push("intakeOnly: true");
+  // Owned by the client file: asked once, during a new client's first
+  // intake, then edited there and never asked again.
+  if (q.client_file) parts.push("clientFile: true");
   return "    { " + parts.join(", ") + " },";
 }
 

@@ -27,16 +27,29 @@ ALTER SESSION SET CURRENT_SCHEMA = ITERIA_AI;
 -- information screen, where changing one is a deliberate act that raises a
 -- change request. It means the question is not put in front of someone
 -- again, one at a time, in a flow about something else.
+--
+-- client_file is a stronger version of the same idea, for the handful of
+-- questions that are facts about the client rather than discovery: who they
+-- are, who to call. A new client is asked them once, at first intake,
+-- because that is how the record comes into existence. After that they are
+-- a form on the client file and the questionnaire stops asking them
+-- altogether -- an interview is the wrong shape for correcting a phone
+-- number.
 -- ============================================================================
 
 ALTER TABLE insight_questions ADD (
-    ask_on_update NUMBER(1) DEFAULT 1 NOT NULL
+    ask_on_update NUMBER(1) DEFAULT 1 NOT NULL,
+    client_file   NUMBER(1) DEFAULT 0 NOT NULL
 );
 
 ALTER TABLE insight_questions ADD CONSTRAINT chk_insight_q_ask_on_update
     CHECK (ask_on_update IN (0, 1));
 
+ALTER TABLE insight_questions ADD CONSTRAINT chk_insight_q_client_file
+    CHECK (client_file IN (0, 1));
+
 COMMENT ON COLUMN insight_questions.ask_on_update IS '1 = asked again when a client is updated (default). 0 = asked once at intake; still editable on the client screen, just not re-asked.';
+COMMENT ON COLUMN insight_questions.client_file IS '1 = owned by the client file: asked during a new client first intake, then edited there as a form and never asked again.';
 
 -- The values themselves are seeded by V24, generated from
 -- questions/insight_questions.json. Splitting them keeps this migration to

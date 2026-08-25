@@ -451,16 +451,19 @@ The client file and the questionnaire are not two ways to do one thing.
 guidance beside it, Skip, "Not known yet", the follow-up chat. An interview
 cannot be run off a form. Every answer is given here.
 
-**The client file is the record around the answers**: what the client is
-called in the list, whatever the assistant has proposed and is waiting on a
-person, the configurations taken so far, and anything nobody asked about. It
-holds **no questions at all**.
+**The client file holds the client's basic details**: company name, contact
+name, job title, email, phone, other stakeholders -- the six questions
+marked `client_file = 1`. They are asked once, during a new client's first
+intake, because that is how the record comes into existence. After that the
+questionnaire stops asking them entirely and the file owns them as a form.
+An interview is the wrong shape for correcting a phone number, and asking
+the same six in two places is how two answers drift apart.
 
-It briefly held six of them -- the client-identification group -- which made
-"one home per question" untrue, since the questionnaire asks those same six.
-Correcting a detail an update run does not ask, a mistyped email address
-say, is done through **Questions** on the client row, which walks the whole
-deck.
+The file also carries what the assistant has proposed and is waiting on a
+person, the configurations taken so far, and anything nobody asked about.
+
+The name in the client list follows the company name, so there is one thing
+to type rather than two that can disagree.
 
 **A configuration comes out of the end of a run**, on the Summary, together
 with what changed since the last one. Not from a form elsewhere: a

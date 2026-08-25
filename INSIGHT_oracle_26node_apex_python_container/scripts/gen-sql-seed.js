@@ -55,11 +55,12 @@ WHEN MATCHED THEN UPDATE SET
     tgt.is_required   = src.is_required,
     tgt.is_locked     = src.is_locked,
     tgt.ask_on_update = src.ask_on_update,
+    tgt.client_file   = src.client_file,
     tgt.display_order = src.display_order
 WHEN NOT MATCHED THEN INSERT (
-    question_id, module_code, phase, eyebrow, question_text, answer_type, is_required, is_locked, ask_on_update, display_order
+    question_id, module_code, phase, eyebrow, question_text, answer_type, is_required, is_locked, ask_on_update, client_file, display_order
 ) VALUES (
-    src.question_id, src.module_code, src.phase, src.eyebrow, src.question_text, src.answer_type, src.is_required, src.is_locked, src.ask_on_update, src.display_order
+    src.question_id, src.module_code, src.phase, src.eyebrow, src.question_text, src.answer_type, src.is_required, src.is_locked, src.ask_on_update, src.client_file, src.display_order
 );
 
 COMMIT;
@@ -101,6 +102,7 @@ function renderRow(q) {
     `${q.is_required} AS is_required, ` +
     `${q.is_locked} AS is_locked, ` +
     `${q.ask_on_update} AS ask_on_update, ` +
+    `${q.client_file} AS client_file, ` +
     `${q.display_order} AS display_order FROM dual`
   );
 }

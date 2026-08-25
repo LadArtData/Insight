@@ -432,12 +432,12 @@
       <button type="button" class="icon-btn" id="client-info-close" aria-label="Close">✕</button>
     </div>
 
-    <p class="sheet-label">Record name</p>
-    <p class="sheet-hint">What this client is called in the list. Everything else below is the client's answers.</p>
-    <input type="text" class="sheet-input" id="client-info-name" maxlength="300" placeholder="Legal or trading name">
+    <p class="sheet-label">Basic details</p>
+    <p class="sheet-hint">Who the client is and who to call. Asked once when the client was created; edited here afterwards. The name in the client list follows the company name.</p>
+    <div id="client-info-fields"></div>
 
     <div class="sheet-actions">
-      <button type="button" class="btn btn-primary" id="client-info-save">Save name</button>
+      <button type="button" class="btn btn-primary" id="client-info-save">Save details</button>
       <span class="sheet-status" id="client-info-status"></span>
     </div>
 
@@ -1111,12 +1111,12 @@
   // GENERATED:QUESTIONS:START -- do not hand-edit; regenerate via
   // scripts/gen-js-questions.js from questions/insight_questions.json
   var ALL_QUESTIONS = [
-    { id: "INTAKE-001", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the client\'s full legal company name, and what should we call them informally?', type: "text", answer: null, required: true, intakeOnly: true },
-    { id: "INTAKE-002", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s full name?', type: "text", answer: null, required: true, intakeOnly: true },
-    { id: "INTAKE-002B", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s job title or role?', type: "text", answer: null, required: true, intakeOnly: true },
-    { id: "INTAKE-002C", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s email address?', type: "email", answer: null, required: true, intakeOnly: true },
-    { id: "INTAKE-002D", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s phone number?', type: "phone", answer: null, required: false, intakeOnly: true },
-    { id: "INTAKE-003", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'Who else should be considered a key stakeholder or decision-maker (e.g., CFO, Controller, IT Director)?', type: "text", answer: null, required: false, intakeOnly: true },
+    { id: "INTAKE-001", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the client\'s full legal company name, and what should we call them informally?', type: "text", answer: null, required: true, intakeOnly: true, clientFile: true },
+    { id: "INTAKE-002", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s full name?', type: "text", answer: null, required: true, intakeOnly: true, clientFile: true },
+    { id: "INTAKE-002B", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s job title or role?', type: "text", answer: null, required: true, intakeOnly: true, clientFile: true },
+    { id: "INTAKE-002C", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s email address?', type: "email", answer: null, required: true, intakeOnly: true, clientFile: true },
+    { id: "INTAKE-002D", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'What is the primary contact\'s phone number?', type: "phone", answer: null, required: false, intakeOnly: true, clientFile: true },
+    { id: "INTAKE-003", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Client Identification', text: 'Who else should be considered a key stakeholder or decision-maker (e.g., CFO, Controller, IT Director)?', type: "text", answer: null, required: false, intakeOnly: true, clientFile: true },
     { id: "INTAKE-004", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'What industry/sector is the client in, and approximately how large are they (employee count and/or annual revenue)?', type: "text", answer: null, required: true, intakeOnly: true },
     { id: "INTAKE-005", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'How many legal entities does the client operate?', type: "number", answer: null, required: false },
     { id: "INTAKE-005B", module: "INTAKE", phase: "1", eyebrow: 'Phase 1 · Client Intake — Company Profile', text: 'How many subsidiaries does the client operate?', type: "number", answer: null, required: false },
@@ -1240,11 +1240,18 @@
   // They are not frozen. Every answer stays editable on the client
   // information screen. They are simply not put in front of someone again,
   // one at a time, in a flow about something else.
-  var updateRun = false;   // true while an update run is in progress
+  var updateRun = false;    // true while an update run is in progress
+  var firstIntake = false;  // true only while a brand-new client is being taken
 
   function getActiveQuestions() {
     return ALL_QUESTIONS.filter(function (q) {
       if (q.phase === "3" && !isModuleInScope(q.module)) return false;
+      // Facts about the client rather than discovery: who they are, who to
+      // call. Asked once, while the record is coming into existence, and
+      // after that owned by the client file as a form. An interview is the
+      // wrong shape for correcting a phone number, and asking the same six
+      // questions in two places is how the two answers drift apart.
+      if (q.clientFile && !firstIntake) return false;
       if (updateRun && q.intakeOnly) return false;
       return true;
     });
@@ -1423,15 +1430,12 @@
       if (q.skipped) skipped[q.id] = true;
       if (q.unknown) unknown[q.id] = true;
     });
-    // INTAKE-001 seeds the client's label, but only while there isn't one.
-    // Once a name exists it is left alone, because the client information
-    // sheet can now set it deliberately and a derived value must not
-    // silently overwrite a typed one on the next Next click. Correcting
-    // INTAKE-001 later still updates the answer and the export; it just
-    // stops renaming the record.
+    // The name in the client list follows the company name, so there is one
+    // thing to type rather than two that can disagree. Correcting the
+    // company name renames the record, which is what someone correcting it
+    // means to happen.
     var nameAnswer = answers["INTAKE-001"];
-    var hasName = currentClient.companyName && currentClient.companyName !== "Unnamed client";
-    if (nameAnswer && nameAnswer.trim() && !hasName) {
+    if (nameAnswer && nameAnswer.trim()) {
       currentClient.companyName = nameAnswer.trim().split(",")[0].trim();
     }
     var now = new Date().toISOString();
@@ -1501,11 +1505,13 @@
   function clearActiveClient() {
     currentClient = { id: null, companyName: "", createdAt: null };
     updateRun = false;
+    firstIntake = false;
     updateClientContextChip();
   }
 
   function startNewClient() {
     updateRun = false;
+    firstIntake = true;
     currentClient = { id: "client_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8), companyName: "", createdAt: null };
     ALL_QUESTIONS.forEach(function (q) { q.answer = q.locked ? "Yes" : null; q.skipped = false; q.unknown = false; });
     qIndex = 0;
@@ -1525,6 +1531,7 @@
       if (!record) { showFatalError("Couldn't find that client record — it may have been deleted."); return; }
       currentClient = { id: record.id, companyName: record.companyName, createdAt: record.createdAt };
       updateRun = !!asUpdate;
+      firstIntake = false;   // the record already exists; its details are a form now
       ALL_QUESTIONS.forEach(function (q) {
         var v = record.answers ? record.answers[q.id] : undefined;
         q.answer = (v !== undefined) ? v : (q.locked ? "Yes" : null);
@@ -1727,19 +1734,65 @@
     renderNotes(record ? record.notes : []);
   }
 
-  // The client file holds no questions.
+  // The client's basic details: who they are and who to call.
   //
-  // It held six of them until it was pointed out that the questionnaire
-  // asks those same six -- so "one home per question" was never true here,
-  // it was just a shorter copy. Every question is answered in one place
-  // now, the questionnaire. Correcting a detail that an update run does not
-  // ask -- a mistyped email address, say -- is done through "Questions" on
-  // the client row, which walks the whole deck.
+  // These six are asked once, during a new client's first intake, because
+  // that is how the record comes into existence. After that the
+  // questionnaire stops asking them entirely and this form owns them --
+  // an interview is the wrong shape for correcting a phone number, and
+  // asking the same six in two places is how two answers drift apart.
   //
-  // What is left here is the record around the answers: what the client is
-  // called in the list, what the assistant has proposed and is waiting on a
-  // person, the configurations taken so far, and anything nobody asked
-  // about.
+  // Which six is not decided here: the questions carry a clientFile flag,
+  // generated from questions/insight_questions.json, so the form and the
+  // deck cannot disagree about the boundary.
+  function renderAnswerFields(record) {
+    var wrap = document.getElementById("client-info-fields");
+    wrap.innerHTML = "";
+    var answers = record.answers || {};
+
+    ALL_QUESTIONS.filter(function (q) { return q.clientFile; }).forEach(function (q) {
+      var value = answers[q.id];
+      var blank = value === null || value === undefined || String(value).trim() === "";
+      var isUnknown = !!(record.unknown && record.unknown[q.id]);
+      var flag = "";
+      if (isUnknown) flag = "Not known yet";
+      else if (blank && q.required) flag = "Still needed";
+      else if (blank && record.skipped && record.skipped[q.id]) flag = "Skipped";
+
+      var row = document.createElement("div");
+      row.className = "qf";
+      row.innerHTML =
+        '<div class="qf-question"><span>' + escapeHtml(q.text) + '</span>' +
+        (flag ? '<span class="qf-flag' + (flag === "Still needed" ? " needed" : "") + '">' + escapeHtml(flag) + '</span>' : '') +
+        '</div>';
+
+      var rule = TYPE_RULES[q.type];
+      var field;
+      if (rule) {
+        field = document.createElement("input");
+        field.type = "text";
+        field.setAttribute("inputmode", rule.inputMode);
+        field.placeholder = rule.placeholder;
+      } else {
+        field = document.createElement("textarea");
+        field.rows = 2;
+        field.placeholder = "Not answered yet";
+      }
+      field.className = "sheet-input";
+      field.maxLength = (rule && rule.maxLength) ? rule.maxLength : MAX_ANSWER_LEN;
+      field.value = blank ? "" : String(value);
+      field.addEventListener("input", function () { row.dataset.value = field.value; });
+      row.appendChild(field);
+
+      var err = document.createElement("div");
+      err.className = "qf-error";
+      row.appendChild(err);
+
+      row.dataset.qid = q.id;
+      row.dataset.original = blank ? "" : String(value);
+      wrap.appendChild(row);
+    });
+  }
 
   // ---- changes waiting for review ----
   // The package has been able to approve a change request since V9 and
@@ -1871,10 +1924,11 @@
     renderPendingChanges(await listPendingChanges(id));
     document.getElementById("client-info-sub").textContent =
       record.companyName ? "Editing " + record.companyName : "Details and anything else worth recording";
-    document.getElementById("client-info-name").value = record.companyName === "Unnamed client" ? "" : (record.companyName || "");
+    renderAnswerFields(record);
     renderNotes(record.notes);
     infoSheet.classList.add("show");
-    document.getElementById("client-info-name").focus();
+    var firstField = document.querySelector("#client-info-fields .sheet-input");
+    if (firstField) firstField.focus();
   }
 
   function closeClientInfo() {
@@ -1898,29 +1952,86 @@
   // is still editable here while the questions are not.
   document.getElementById("client-info-save").addEventListener("click", safe(async function () {
     if (!infoClientId) return;
-    var name = document.getElementById("client-info-name").value.trim();
-    if (!name) { setInfoStatus("A name is required.", false); return; }
+
+    // Only what changed, so an untouched field is never compared against
+    // itself and never disturbs its answer.
+    var changed = {};
+    var invalid = 0;
+    Array.from(document.querySelectorAll("#client-info-fields .qf")).forEach(function (row) {
+      var err = row.querySelector(".qf-error");
+      err.classList.remove("show");
+      if (row.dataset.value === undefined) return;          // untouched
+      var next = row.dataset.value;
+      if (next === row.dataset.original) return;            // typed back to the same thing
+
+      var q = ALL_QUESTIONS.find(function (x) { return x.id === row.dataset.qid; });
+      // The same rules the questionnaire applies. A detail corrected at a
+      // desk is not a lesser kind of answer than one given in an interview.
+      var problem = validateAnswer({ type: q.type, required: q.required, answer: next, unknown: false });
+      if (!problem && q.type === "text" && classifyAnswerLocally(next) === "nonsense") {
+        problem = "That doesn't look like an answer to this question.";
+      }
+      if (problem) {
+        err.textContent = problem;
+        err.classList.add("show");
+        invalid += 1;
+        return;
+      }
+      changed[row.dataset.qid] = next;
+    });
+
+    if (invalid) {
+      setInfoStatus(invalid === 1 ? "One detail needs fixing before this can save."
+                                  : invalid + " details need fixing before this can save.", false);
+      return;
+    }
+    if (!Object.keys(changed).length) { setInfoStatus("Nothing changed.", false); return; }
 
     try {
-      await patchClientProfile(infoClientId, { companyName: name });
+      var payload = { answers: changed, source: "CONSULTANT" };
 
-      // The roster is derived server-side under ORDS, so setClientIndex is
-      // a no-op there; in-memory it is the only copy of the name, and
-      // leaving it stale would show the old one until reload.
-      var list = await getClientIndex();
-      var idx = list.findIndex(function (c) { return c.id === infoClientId; });
-      if (idx >= 0) {
-        list[idx].companyName = name;
-        await setClientIndex(list);
+      // The name in the client list follows the company name -- one thing
+      // to type rather than two that can disagree.
+      var companyAnswer = changed["INTAKE-001"];
+      if (companyAnswer) payload.companyName = companyAnswer.trim().split(",")[0].trim();
+      var contactAnswer = changed["INTAKE-002"] !== undefined
+        ? changed["INTAKE-002"]
+        : (infoLoaded && infoLoaded.answers ? infoLoaded.answers["INTAKE-002"] : null);
+      if (contactAnswer) payload.primaryContact = String(contactAnswer).slice(0, 300);
+
+      var result = await patchClientProfile(infoClientId, payload);
+
+      if (payload.companyName) {
+        // The roster is derived server-side under ORDS, so setClientIndex is
+        // a no-op there; in-memory it is the only copy of the name.
+        var list = await getClientIndex();
+        var idx = list.findIndex(function (c) { return c.id === infoClientId; });
+        if (idx >= 0) {
+          list[idx].companyName = payload.companyName;
+          list[idx].primaryContact = payload.primaryContact || list[idx].primaryContact;
+          await setClientIndex(list);
+        }
+        if (currentClient.id === infoClientId) {
+          currentClient.companyName = payload.companyName;
+          updateClientContextChip();
+        }
+        document.getElementById("client-info-sub").textContent = "Editing " + payload.companyName;
       }
-      if (currentClient.id === infoClientId) {
-        currentClient.companyName = name;
-        updateClientContextChip();
-      }
-      document.getElementById("client-info-sub").textContent = "Editing " + name;
-      setInfoStatus("Name saved.", true);
+
+      var pending = (result && result.pendingApproval) || 0;
+      var applied = (result && typeof result.saved === "number")
+        ? result.saved : Object.keys(changed).length;
+      var parts = [];
+      if (applied) parts.push(applied + (applied === 1 ? " detail saved" : " details saved"));
+      if (pending) parts.push(pending + (pending === 1 ? " edit pending review" : " edits pending review"));
+      setInfoStatus(parts.join(", ") + ".", true);
+
+      // Reload, so the flags and anything only pending show what the record
+      // actually holds rather than what was typed.
+      var refreshed = await getClientRecord(infoClientId);
+      if (refreshed) { infoLoaded = refreshed; renderAnswerFields(refreshed); }
     } catch (err) {
-      setInfoStatus("Couldn't save that name: " + err.message, false);
+      setInfoStatus("Couldn't save those details: " + err.message, false);
     }
   }));
 
