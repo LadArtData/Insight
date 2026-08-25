@@ -184,7 +184,9 @@
   .mod-status.included { background: rgba(53,196,138,0.14); color: var(--good); }
   .mod-status.pending { background: rgba(255,106,26,0.14); color: var(--orange); }
   .mod-status.excluded { background: rgba(255,255,255,0.05); color: var(--ink-muted); }
-  .summary-actions { display: flex; justify-content: center; gap: 12px; margin-top: 24px; }
+  .summary-actions { display: flex; justify-content: center; gap: 12px; margin-top: 20px; }
+  .summary-config { margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--line); }
+  #summary-export-status { text-align: center; margin-top: 10px; }
 
   .field-error {
     display: none; align-items: center; gap: 6px; margin-top: 8px;
@@ -434,13 +436,8 @@
     <p class="sheet-hint">What this client is called in the list. Everything else below is the client's answers.</p>
     <input type="text" class="sheet-input" id="client-info-name" maxlength="300" placeholder="Legal or trading name">
 
-    <div class="sheet-divider"></div>
-    <p class="sheet-label">Client details</p>
-    <p class="sheet-hint" id="client-info-fields-hint">Who the client is and who to call. Everything else is answered in the questionnaire.</p>
-    <div id="client-info-fields"></div>
-
-    <div class="sheet-actions sheet-actions-sticky">
-      <button type="button" class="btn btn-primary" id="client-info-save">Save details</button>
+    <div class="sheet-actions">
+      <button type="button" class="btn btn-primary" id="client-info-save">Save name</button>
       <span class="sheet-status" id="client-info-status"></span>
     </div>
 
@@ -454,16 +451,14 @@
     </div>
 
     <div class="sheet-divider"></div>
-    <p class="sheet-label">Configuration update</p>
-    <p class="sheet-hint">When something changes for this client — a new subsidiary, a module added, a system replaced — walk the update questions, then record what changed here and take a fresh configuration.</p>
+    <p class="sheet-label">Configurations</p>
+    <p class="sheet-hint">When something changes for this client — a new subsidiary, a module added, a system replaced — walk the update questions. The configuration comes out of the end of that run, along with what changed.</p>
     <div id="client-info-updates"></div>
-    <textarea class="sheet-input" id="client-info-change-summary" rows="3" maxlength="2000" placeholder="What changed since the last configuration?"></textarea>
     <div class="sheet-actions">
-      <button type="button" class="btn btn-ghost" id="client-info-start-update"
+      <button type="button" class="btn btn-primary" id="client-info-start-update"
               title="Only the questions an update can change, starting at the top">Walk the update questions</button>
-      <button type="button" class="btn btn-primary" id="client-info-regenerate">Record update &amp; export configuration</button>
+      <span class="sheet-status" id="client-info-update-status"></span>
     </div>
-    <p class="sheet-status" id="client-info-update-status"></p>
 
     <div class="sheet-divider"></div>
     <p class="sheet-label">Additional information</p>
@@ -638,10 +633,19 @@
         <div class="mod-status" id="mod-status-cm">—</div>
       </div>
 
+      <div class="summary-config">
+        <p class="sheet-label">Take the configuration</p>
+        <p class="sheet-hint">The answers as the database holds them, exported for this client. If anything changed since the last one, say what — that is what tells an implementation team which configuration they are looking at.</p>
+        <div id="summary-update-history"></div>
+        <textarea class="sheet-input" id="summary-change-summary" rows="3" maxlength="2000"
+                  placeholder="What changed since the last configuration? (leave blank for the first one)"></textarea>
+      </div>
+
       <div class="summary-actions">
         <button class="btn btn-ghost" id="btn-restart">Back to Client Records</button>
-        <button class="btn btn-primary" id="btn-export">Export Configuration</button>
+        <button class="btn btn-primary" id="btn-export">Export configuration</button>
       </div>
+      <p class="sheet-status" id="summary-export-status"></p>
     </div>
   </div>
 </div>
@@ -1635,7 +1639,6 @@
   var infoSheet = document.getElementById("client-info");
   var infoClientId = null;   // which client the sheet is currently showing
   var infoLoaded = null;     // the record as loaded, to diff edits against
-  var infoEditsSinceUpdate = 0;  // answers edited here since the last configuration
 
   function setInfoStatus(message, ok) {
     var el = document.getElementById("client-info-status");
@@ -1724,81 +1727,19 @@
     renderNotes(record ? record.notes : []);
   }
 
-  // The client's own details, and nothing else.
+  // The client file holds no questions.
   //
-  // This section used to hold every question in the client's scope, which
-  // made it a second way to answer the questionnaire -- the same phases, the
-  // same questions, a different screen. Two places to do one job is how the
-  // two drift and how a person stops trusting either.
+  // It held six of them until it was pointed out that the questionnaire
+  // asks those same six -- so "one home per question" was never true here,
+  // it was just a shorter copy. Every question is answered in one place
+  // now, the questionnaire. Correcting a detail that an update run does not
+  // ask -- a mistyped email address, say -- is done through "Questions" on
+  // the client row, which walks the whole deck.
   //
-  // So the split is by kind of work rather than by convenience. Who the
-  // client is and who to call is a form, and lives here. What the client
-  // needs is an interview, and lives in the questionnaire, where there is
-  // one question at a time, guidance beside it, Skip, "Not known yet" and
-  // the follow-up chat.
-  //
-  // These particular questions are here for a reason beyond tidiness: they
-  // are marked intake-only, so an update run never asks them. Without this
-  // form, a corrected email address would need a full intake run to fix.
-  var CLIENT_DETAIL_QUESTIONS = ["INTAKE-001", "INTAKE-002", "INTAKE-002B", "INTAKE-002C", "INTAKE-002D", "INTAKE-003"];
-
-  function renderAnswerFields(record) {
-    var wrap = document.getElementById("client-info-fields");
-    wrap.innerHTML = "";
-    var answers = record.answers || {};
-
-    CLIENT_DETAIL_QUESTIONS.forEach(function (qid) {
-      var q = ALL_QUESTIONS.find(function (x) { return x.id === qid; });
-      if (!q) return;
-
-      var value = answers[q.id];
-      var blank = value === null || value === undefined || String(value).trim() === "";
-      var isUnknown = !!(record.unknown && record.unknown[q.id]);
-      var flag = "";
-      if (isUnknown) flag = "Not known yet";
-      else if (blank && q.required) flag = "Still needed";
-      else if (blank && record.skipped && record.skipped[q.id]) flag = "Skipped";
-
-      var row = document.createElement("div");
-      row.className = "qf";
-      row.innerHTML =
-        '<div class="qf-question"><span>' + escapeHtml(q.text) + '</span>' +
-        (flag ? '<span class="qf-flag' + (flag === "Still needed" ? " needed" : "") + '">' + escapeHtml(flag) + '</span>' : '') +
-        '</div>';
-
-      // Every client detail is text, an email or a phone number. A yes/no
-      // question would need its own control, and rendering one as a
-      // textarea would quietly accept anything -- so it is skipped rather
-      // than mishandled, and the omission is visible if one ever lands here.
-      if (q.type === "yn") return;
-
-      var rule = TYPE_RULES[q.type];
-      var field;
-      if (rule) {
-        field = document.createElement("input");
-        field.type = "text";
-        field.setAttribute("inputmode", rule.inputMode);
-        field.placeholder = rule.placeholder;
-      } else {
-        field = document.createElement("textarea");
-        field.rows = 2;
-        field.placeholder = "Not answered yet";
-      }
-      field.className = "sheet-input";
-      field.maxLength = (rule && rule.maxLength) ? rule.maxLength : MAX_ANSWER_LEN;
-      field.value = blank ? "" : String(value);
-      field.addEventListener("input", function () { row.dataset.value = field.value; });
-      row.appendChild(field);
-
-      var err = document.createElement("div");
-      err.className = "qf-error";
-      row.appendChild(err);
-
-      row.dataset.qid = q.id;
-      row.dataset.original = blank ? "" : String(value);
-      wrap.appendChild(row);
-    });
-  }
+  // What is left here is the record around the answers: what the client is
+  // called in the list, what the assistant has proposed and is waiting on a
+  // person, the configurations taken so far, and anything nobody asked
+  // about.
 
   // ---- changes waiting for review ----
   // The package has been able to approve a change request since V9 and
@@ -1859,7 +1800,7 @@
       // the fields above showing the old values would contradict what was
       // just done.
       var refreshed = await getClientRecord(infoClientId);
-      if (refreshed) { infoLoaded = refreshed; renderAnswerFields(refreshed); }
+      if (refreshed) { infoLoaded = refreshed; }
       renderPendingChanges(await listPendingChanges(infoClientId));
       statusEl.textContent = decision === "approve" ? "Applied." : "Rejected.";
     } catch (err) {
@@ -1915,61 +1856,6 @@
     await openClient(id, true);
   }));
 
-  document.getElementById("client-info-regenerate").addEventListener("click", safe(async function () {
-    if (!infoClientId) return;
-    var box = document.getElementById("client-info-change-summary");
-    var summary = box.value.trim();
-    if (!summary) {
-      setInfoUpdateStatus("Say what changed first — that's the whole point of the record.", false);
-      return;
-    }
-
-    try {
-      // Read the record fresh rather than exporting what is on screen. An
-      // edit to an answer that already had a value is pending until someone
-      // approves it, so the screen can show a value the record does not yet
-      // hold. A configuration is the artifact that leaves the building; it
-      // has to be what is of record.
-      var record = await getClientRecord(infoClientId);
-      if (!record) {
-        setInfoUpdateStatus("Couldn't read this client's record to export it.", false);
-        return;
-      }
-
-      var previous = (record.configUpdates && record.configUpdates.length)
-        ? record.configUpdates[0].createdAt : (record.createdAt || null);
-      // Counted, not inferred: this is how many answers were actually
-      // edited through this sheet since it was opened or since the last
-      // update was recorded. Deriving it from timestamps would mean
-      // guessing, and an update that reshaped a client's structure needs to
-      // be distinguishable from one that fixed a phone number.
-      var changedSince = infoEditsSinceUpdate;
-
-      await recordConfigUpdate(infoClientId, summary, changedSince);
-      var refreshed = (await getClientRecord(infoClientId)) || record;
-
-      downloadConfiguration(refreshed, "database", {
-        configurationUpdate: {
-          summary: summary,
-          recordedAt: new Date().toISOString(),
-          answersChangedSincePreviousConfiguration: changedSince,
-          previousConfigurationAt: previous
-        }
-      });
-
-      box.value = "";
-      infoEditsSinceUpdate = 0;
-      infoLoaded = refreshed;
-      renderConfigUpdates(refreshed.configUpdates);
-      renderAnswerFields(refreshed);
-      setInfoUpdateStatus("Update recorded and configuration exported.", true);
-    } catch (err) {
-      setInfoUpdateStatus("Couldn't record that update: " + err.message, false);
-    }
-  }));
-
-
-
   async function openClientInfo(id) {
     infoClientId = id;
     setInfoStatus("");
@@ -1980,15 +1866,12 @@
       return;
     }
     infoLoaded = record;
-    infoEditsSinceUpdate = 0;
-    document.getElementById("client-info-change-summary").value = "";
     document.getElementById("client-info-update-status").textContent = "";
     renderConfigUpdates(record.configUpdates);
     renderPendingChanges(await listPendingChanges(id));
     document.getElementById("client-info-sub").textContent =
       record.companyName ? "Editing " + record.companyName : "Details and anything else worth recording";
     document.getElementById("client-info-name").value = record.companyName === "Unnamed client" ? "" : (record.companyName || "");
-    renderAnswerFields(record);
     renderNotes(record.notes);
     infoSheet.classList.add("show");
     document.getElementById("client-info-name").focus();
@@ -2010,69 +1893,17 @@
     if (e.key === "Escape" && infoSheet.classList.contains("show")) { closeClientInfo(); renderRecordsScreen(); }
   });
 
+  // Renaming the record, and nothing else. The name is what this client is
+  // called in the list -- it is not an answer to anything, which is why it
+  // is still editable here while the questions are not.
   document.getElementById("client-info-save").addEventListener("click", safe(async function () {
     if (!infoClientId) return;
     var name = document.getElementById("client-info-name").value.trim();
-    if (!name) { setInfoStatus("A company name is required.", false); return; }
-
-    // Only what changed, so an untouched field is never compared against
-    // itself and never disturbs its answer.
-    var changed = {};
-    var invalid = 0;
-    var rows = document.querySelectorAll("#client-info-fields .qf");
-    Array.from(rows).forEach(function (row) {
-      var err = row.querySelector(".qf-error");
-      err.classList.remove("show");
-      if (row.dataset.value === undefined) return;          // untouched
-      var next = row.dataset.value;
-      if (next === row.dataset.original) return;            // typed back to the same thing
-
-      var q = ALL_QUESTIONS.find(function (x) { return x.id === row.dataset.qid; });
-      // Validated against the question's own rule, the same one the
-      // questionnaire applies. A detail corrected here is not a lesser kind
-      // of answer than one given in the interview.
-      var problem = validateAnswer({ type: q.type, required: q.required, answer: next, unknown: false });
-      // Same bar as the questionnaire, minus the reviewer: this saves
-      // several fields at once, and asking the model about each would turn
-      // one click into a queue of round trips.
-      if (!problem && q.type === "text" && classifyAnswerLocally(next) === "nonsense") {
-        problem = "That doesn't look like an answer to this question.";
-      }
-      if (problem) {
-        err.textContent = problem;
-        err.classList.add("show");
-        invalid += 1;
-        return;
-      }
-      changed[row.dataset.qid] = next;
-    });
-
-    if (invalid) {
-      setInfoStatus(invalid === 1 ? "One answer needs fixing before this can save."
-                                  : invalid + " answers need fixing before this can save.", false);
-      return;
-    }
+    if (!name) { setInfoStatus("A name is required.", false); return; }
 
     try {
-      var changedCount = Object.keys(changed).length;
-      var payload = { companyName: name };
-      if (changedCount) {
-        payload.answers = changed;
-        // Marked as consultant work: an edit made deliberately on this
-        // screen is a considered correction, not a value captured in the
-        // middle of a sales call, and the handoff should be able to tell
-        // those apart.
-        payload.source = "CONSULTANT";
-      }
-      // The roster's contact line comes from the record, but the fact
-      // itself lives in the contact-name answer -- one home per fact.
-      var contactAnswer = changed["INTAKE-002"] !== undefined
-        ? changed["INTAKE-002"]
-        : (infoLoaded && infoLoaded.answers ? infoLoaded.answers["INTAKE-002"] : null);
-      if (contactAnswer) payload.primaryContact = String(contactAnswer).slice(0, 300);
+      await patchClientProfile(infoClientId, { companyName: name });
 
-      var result = await patchClientProfile(infoClientId, payload);
-      var contact = payload.primaryContact || "";
       // The roster is derived server-side under ORDS, so setClientIndex is
       // a no-op there; in-memory it is the only copy of the name, and
       // leaving it stale would show the old one until reload.
@@ -2080,37 +1911,16 @@
       var idx = list.findIndex(function (c) { return c.id === infoClientId; });
       if (idx >= 0) {
         list[idx].companyName = name;
-        list[idx].primaryContact = contact;
         await setClientIndex(list);
       }
       if (currentClient.id === infoClientId) {
         currentClient.companyName = name;
         updateClientContextChip();
       }
-
-      // Not every edit takes effect immediately, and saying "saved" when
-      // some of it is queued for review would be a lie the record later
-      // contradicts. Changing an answer that already had a value raises a
-      // change request; filling a blank applies straight away.
-      infoEditsSinceUpdate += changedCount;
-      var pending = (result && result.pendingApproval) || 0;
-      var applied = (result && typeof result.saved === "number") ? result.saved : changedCount;
-      var parts = [];
-      if (applied) parts.push(applied + (applied === 1 ? " change saved" : " changes saved"));
-      if (pending) parts.push(pending + (pending === 1 ? " edit pending review" : " edits pending review"));
-      if (!parts.length) parts.push("Details saved");
-      setInfoStatus(parts.join(", ") + ".", true);
-
-      // Reload so the flags, and any edit that is only pending, show what
-      // the record actually holds rather than what was typed.
-      var refreshed = await getClientRecord(infoClientId);
-      if (refreshed) {
-        infoLoaded = refreshed;
-        renderAnswerFields(refreshed);
-        renderNotes(refreshed.notes);
-      }
+      document.getElementById("client-info-sub").textContent = "Editing " + name;
+      setInfoStatus("Name saved.", true);
     } catch (err) {
-      setInfoStatus("Couldn't save those details: " + err.message, false);
+      setInfoStatus("Couldn't save that name: " + err.message, false);
     }
   }));
 
@@ -2375,7 +2185,7 @@
         return x.intakeOnly && (x.phase !== "3" || isModuleInScope(x.module));
       }).length;
       modeNote.textContent = "Update run — " + held +
-        " intake questions are not asked again. Edit those on the client screen if they need to change.";
+        " intake questions are not asked again. Use \u201cQuestions\u201d on the client row to walk the whole deck if one of those needs changing.";
       modeNote.classList.add("show");
     } else {
       modeNote.textContent = "";
@@ -2485,23 +2295,14 @@
       return;
     }
     if (updateRun) {
-      // Straight back to where a configuration is produced, rather than to
-      // the follow-up chat. The chat exists to chase what an intake missed;
-      // an update run has just been walked end to end on purpose, and the
-      // thing left to do is say what changed and take the new configuration.
-      var id = currentClient.id;
+      // Straight to the Summary, not the follow-up chat. The chat exists to
+      // chase what an intake missed; an update run has just been walked end
+      // to end on purpose, and the thing left is to say what changed and
+      // take the configuration -- both of which live on the Summary.
       updateRun = false;
-      showScreen("records");
-      await renderRecordsScreen();
-      if (id) {
-        await openClientInfo(id);
-        var box = document.getElementById("client-info-change-summary");
-        // Guarded: scrollIntoView is absent in some environments, and
-        // failing to scroll must not throw away the rest of this.
-        if (typeof box.scrollIntoView === "function") box.scrollIntoView({ block: "center" });
-        box.focus();
-        setInfoUpdateStatus("Answers updated. Say what changed, and take the new configuration.", true);
-      }
+      renderSummaryModules();
+      showScreen("summary");
+      await prepareSummaryConfiguration();
       return;
     }
     showScreen("chat");
@@ -2626,6 +2427,7 @@
           if (!screens.chat.classList.contains("active")) return; // user navigated away before this fired
           renderSummaryModules();
           showScreen("summary");
+          prepareSummaryConfiguration();
         }, 1000);
         return;
       }
@@ -2646,6 +2448,7 @@
         if (!screens.chat.classList.contains("active")) return; // user navigated away before this fired
         renderSummaryModules();
         showScreen("summary");
+        prepareSummaryConfiguration();
       }, 1400);
       return;
     }
@@ -2802,8 +2605,73 @@
         createdAt: currentClient.createdAt || null
       };
     }
-    downloadConfiguration(record, source);
+    var summaryEl = document.getElementById("summary-change-summary");
+    var statusEl = document.getElementById("summary-export-status");
+    var changeSummary = summaryEl.value.trim();
+    var extra = null;
+
+    // Saying what changed is what tells an implementation team which
+    // configuration they are holding. It is optional only for the first
+    // one, where there is nothing yet to have changed from.
+    if (changeSummary) {
+      try {
+        var previous = (record.configUpdates && record.configUpdates.length)
+          ? record.configUpdates[0].createdAt : (record.createdAt || null);
+        await recordConfigUpdate(currentClient.id, changeSummary, answeredCount(record));
+        extra = {
+          configurationUpdate: {
+            summary: changeSummary,
+            recordedAt: new Date().toISOString(),
+            previousConfigurationAt: previous
+          }
+        };
+        summaryEl.value = "";
+        await prepareSummaryConfiguration();
+      } catch (err) {
+        statusEl.textContent = "Couldn't record what changed: " + err.message;
+        statusEl.classList.remove("ok");
+        return;
+      }
+    }
+
+    downloadConfiguration(record, source, extra);
+    statusEl.textContent = changeSummary
+      ? "Update recorded and configuration exported."
+      : "Configuration exported.";
+    statusEl.classList.add("ok");
   }));
+
+  function answeredCount(record) {
+    var answers = (record && record.answers) || {};
+    return Object.keys(answers).filter(function (k) {
+      return answers[k] !== null && answers[k] !== undefined && String(answers[k]).trim() !== "";
+    }).length;
+  }
+
+  // The configurations already taken, so whoever is about to take another
+  // can see what they are adding to rather than guessing.
+  async function prepareSummaryConfiguration() {
+    var wrap = document.getElementById("summary-update-history");
+    wrap.innerHTML = "";
+    document.getElementById("summary-export-status").textContent = "";
+    if (!currentClient.id) return;
+    var record = null;
+    try { record = await getClientRecord(currentClient.id); } catch (err) { record = null; }
+    var updates = (record && record.configUpdates) || [];
+    if (!updates.length) return;
+    var list = document.createElement("div");
+    list.className = "note-list";
+    updates.slice(0, 3).forEach(function (u) {
+      var when = u.createdAt ? new Date(u.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
+      var row = document.createElement("div");
+      row.className = "note-row";
+      row.innerHTML =
+        '<div class="note-text">' + escapeHtml(u.summary || "") + '</div>' +
+        '<div class="note-meta"><span class="note-tag">' + escapeHtml(when) + '</span></div>';
+      list.appendChild(row);
+    });
+    wrap.appendChild(list);
+  }
 
   // One exporter, used by the Summary screen and by the configuration-update
   // section. A second copy would drift, and the two would then disagree about
@@ -2842,7 +2710,7 @@
         renderQuestion();
       }
       if (c.dataset.crumb === "chat") startChat();
-      if (c.dataset.crumb === "summary") renderSummaryModules();
+      if (c.dataset.crumb === "summary") { renderSummaryModules(); prepareSummaryConfiguration(); }
       showScreen(c.dataset.crumb);
     }));
   });

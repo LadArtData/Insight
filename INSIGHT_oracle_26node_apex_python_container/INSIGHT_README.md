@@ -451,17 +451,24 @@ The client file and the questionnaire are not two ways to do one thing.
 guidance beside it, Skip, "Not known yet", the follow-up chat. An interview
 cannot be run off a form. Every answer is given here.
 
-**The client file is for desk work**: who the client is and who to call,
-the notes, the configuration updates, and whatever the assistant has
-proposed and is waiting on a person. It holds the six client-identification
-questions and nothing else.
+**The client file is the record around the answers**: what the client is
+called in the list, whatever the assistant has proposed and is waiting on a
+person, the configurations taken so far, and anything nobody asked about. It
+holds **no questions at all**.
 
-That last part is not tidiness. Those six are marked `ask_on_update = 0`, so
-an update run never asks them -- without a form for them, a corrected email
-address would need a full intake run to fix. Everything an update run *does*
-ask is answered in the questionnaire, which is why the file no longer
-carries a copy of the deck: two places to do one job is how the two drift
-and how a person stops trusting either.
+It briefly held six of them -- the client-identification group -- which made
+"one home per question" untrue, since the questionnaire asks those same six.
+Correcting a detail an update run does not ask, a mistyped email address
+say, is done through **Questions** on the client row, which walks the whole
+deck.
+
+**A configuration comes out of the end of a run**, on the Summary, together
+with what changed since the last one. Not from a form elsewhere: a
+configuration is the artifact of having been through the answers, and
+producing it somewhere else invites producing it without having looked. An
+update run therefore ends on the Summary rather than at the follow-up chat
+-- that chat exists to chase what an intake missed, and an update has just
+been walked end to end on purpose.
 
 The roster's two buttons say which is which: **Client file** and
 **Questions**.

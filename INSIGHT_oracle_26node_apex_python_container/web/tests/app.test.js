@@ -155,6 +155,39 @@ async function finishRemainingQuestions(win) {
   throw new Error("finishRemainingQuestions: never reached chat screen");
 }
 
+// Walks forward from the current question until the prompt matches, filling
+// each one it passes with a value that question's own type accepts.
+async function advanceTo(win, pattern) {
+  for (let i = 0; i < 40; i++) {
+    if (pattern.test(byId(win, "q-text").textContent)) return;
+    const yn = win.document.querySelectorAll(".yn-btn");
+    if (yn.length) clickYn(win, "Yes");
+    else fillValid(win, "placeholder answer " + i);
+    await clickNext(win);
+  }
+  throw new Error("advanceTo: never reached " + pattern);
+}
+
+// Fake fetch that answers /api/review with a fixed verdict and everything
+// else the way an absent backend would.
+function reviewerFetch(verdict, calls) {
+  return function (url, opts) {
+    const u = String(url);
+    if (u.includes("/api/review")) {
+      if (calls) calls.push(JSON.parse(opts.body));
+      if (verdict === "down") {
+        return Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({}) });
+      }
+      return Promise.resolve({
+        ok: true, status: 200,
+        json: () => Promise.resolve(verdict),
+        text: () => Promise.resolve(JSON.stringify(verdict)),
+      });
+    }
+    return Promise.reject(new Error("offline"));
+  };
+}
+
 test("validation gate rejects an empty required answer", async () => {
   const dom = await bootApp();
   const win = dom.window;
@@ -800,50 +833,6 @@ test("editing an already-answered question applies it, and says nothing about ap
   win.close();
 });
 
-test("editing an already-answered question still records what it replaced", async () => {
-  // The audit trail is the reason the workflow existed. Dropping the
-  // approval step must not drop that.
-  const server = statefulFakeOrds();
-  seedClient(server, "c-audit", { answers: { "QUAL-GL": "Yes", "INTAKE-003": "CFO and Controller" } });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-audit");
-  const sent = [];
-  const original = win.fetch;
-  win.fetch = (url, opts) => {
-    if ((opts || {}).method === "PUT") sent.push(JSON.parse(opts.body));
-    return original(url, opts);
-  };
-
-  typeInto(win, "INTAKE-003", "CFO, Controller and IT Director");
-  byId(win, "client-info-save").click();
-  await wait(100);
-
-  // The front end's part of that contract: say who is making the change,
-  // so the database can tell a consultant's edit from the assistant's.
-  assert.equal(sent[0].source, "CONSULTANT");
-  win.close();
-});
-
-// ---------------------------------------------------------------------------
-// Typed answers. Before these, every question was a free-text box, so
-// "How many legal entities does the client operate?" accepted prose.
-// ---------------------------------------------------------------------------
-
-// Walks forward from the current question until the prompt matches, filling
-// each one it passes with a value that question's own type accepts.
-async function advanceTo(win, pattern) {
-  for (let i = 0; i < 40; i++) {
-    if (pattern.test(byId(win, "q-text").textContent)) return;
-    const yn = win.document.querySelectorAll(".yn-btn");
-    if (yn.length) clickYn(win, "Yes");
-    else fillValid(win, "placeholder answer " + i);
-    await clickNext(win);
-  }
-  throw new Error("advanceTo: never reached " + pattern);
-}
-
 test("typed answer: a 'how many' question rejects prose and accepts a number", async () => {
   const dom = await bootApp();
   const win = dom.window;
@@ -1073,148 +1062,6 @@ function typeInto(win, qid, value) {
   field.value = value;
   field.dispatchEvent(new win.Event("input"));
 }
-
-test("client info: the sheet opens populated with the saved name and answers", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-info");
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-info");
-
-  assert.ok(byId(win, "client-info").classList.contains("show"), "sheet should be visible");
-  assert.equal(byId(win, "client-info-name").value, "Meridian County");
-  assert.equal(qfField(win, "INTAKE-001").value, "Meridian County Government",
-    "each question should render with its stored answer");
-  win.close();
-});
-
-test("client info: the file holds client details only, not the questionnaire", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-scope", {
-    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
-  });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-scope");
-
-  // Who the client is and who to call is a form. What the client needs is
-  // an interview, and belongs in the questionnaire -- having both here made
-  // this a second way to answer the same deck.
-  const rows = byId(win, "client-info-fields").querySelectorAll(".qf");
-  assert.equal(rows.length, 6, "the client-identification questions and no others");
-  assert.ok(qfRow(win, "INTAKE-002C"), "the contact's email is a detail");
-  assert.equal(qfRow(win, "GL-001"), null, "a GL discovery question is not");
-  assert.equal(qfRow(win, "QUAL-AP"), null, "nor is a module qualifier");
-  win.close();
-});
-
-test("client info: the details it holds are the ones an update run never asks", async () => {
-  // Not a tidiness choice. These are marked intake-only, so an update run
-  // skips them -- without this form a corrected email address would need a
-  // full intake run to fix.
-  const server = statefulFakeOrds();
-  seedClient(server, "c-scope", { answers: { "QUAL-GL": "Yes" } });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-scope");
-
-  const shown = Array.from(byId(win, "client-info-fields").querySelectorAll(".qf"))
-    .map((r) => r.dataset.qid);
-  shown.forEach((qid) => {
-    const line = HTML.split("\n").find((l) => l.includes(`id: "${qid}"`));
-    assert.match(line, /intakeOnly: true/, qid + " should be intake-only");
-  });
-  win.close();
-});
-
-test("client info: saving sends only the answers that were touched", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-info");
-  const calls = [];
-  const dom = await bootApp((win) => {
-    win.fetch = (url, opts) => {
-      calls.push({ method: (opts && opts.method) || "GET", url: String(url), body: opts && opts.body });
-      return server.fetchImpl(url, opts);
-    };
-  });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-info");
-
-  byId(win, "client-info-name").value = "Meridian County Water District";
-  typeInto(win, "INTAKE-002", "D. Okafor");
-  byId(win, "client-info-save").click();
-  await wait(80);
-
-  const put = calls.filter((c) => c.method === "PUT" && c.url.endsWith("/clients/c-info")).pop();
-  assert.ok(put, "should PUT the client");
-  const sent = JSON.parse(put.body);
-  assert.equal(sent.companyName, "Meridian County Water District");
-  assert.deepEqual(Object.keys(sent.answers), ["INTAKE-002"],
-    "only the edited answer should be sent -- resending the rest would compare all of them");
-  // An edit made deliberately on this screen is consultant work, not a
-  // value captured mid sales call.
-  assert.equal(sent.source, "CONSULTANT");
-  // The roster's contact line follows the contact-name answer rather than
-  // being typed twice.
-  assert.equal(sent.primaryContact, "D. Okafor");
-
-  const stored = server.clients.get("c-info");
-  assert.equal(stored.companyName, "Meridian County Water District");
-  assert.equal(stored.answers["INTAKE-002"], "D. Okafor");
-  assert.equal(stored.answers["INTAKE-001"], "Meridian County Government",
-    "untouched answers must survive the save");
-  assert.match(byId(win, "client-info-status").textContent, /saved/i);
-  win.close();
-});
-
-test("client info: an answer that fails its format is refused before anything is sent", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-info", { answers: { "QUAL-GL": "Yes" } });
-  const calls = [];
-  const dom = await bootApp((win) => {
-    win.fetch = (url, opts) => {
-      calls.push({ method: (opts && opts.method) || "GET", url: String(url) });
-      return server.fetchImpl(url, opts);
-    };
-  });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-info");
-
-  const before = calls.filter((c) => c.method === "PUT").length;
-  typeInto(win, "INTAKE-002C", "not-an-address");   // the contact email question
-  byId(win, "client-info-save").click();
-  await wait(60);
-
-  assert.equal(calls.filter((c) => c.method === "PUT").length, before,
-    "a badly formatted answer must not reach the database");
-  assert.match(qfRow(win, "INTAKE-002C").querySelector(".qf-error").textContent, /email/i);
-  assert.match(byId(win, "client-info-status").textContent, /needs fixing/i);
-  win.close();
-});
-
-test("client info: an unanswered required question is flagged as still needed", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-info", {
-    answers: { "QUAL-GL": "Yes", "INTAKE-001": "Meridian County Government" },
-    skipped: { "INTAKE-002C": true },
-  });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-info");
-
-  const flag = qfRow(win, "INTAKE-002C").querySelector(".qf-flag");
-  assert.ok(flag, "a blank required question should carry a flag");
-  assert.match(flag.textContent, /Still needed/);
-  // and one that was answered should not
-  assert.equal(qfRow(win, "INTAKE-001").querySelector(".qf-flag"), null);
-  win.close();
-});
 
 test("client info: an empty company name is rejected before any request", async () => {
   const server = statefulFakeOrds();
@@ -1548,133 +1395,6 @@ test("client info: the follow-up chat no longer chases client-identification que
   win.close();
 });
 
-test("client info: skipped intake questions still show in the sheet as outstanding", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-out", {
-    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
-    skipped: { "INTAKE-002B": true, "INTAKE-002C": true, "INTAKE-002D": true },
-  });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-out");
-
-  // Not chased in the chat, but not lost either -- the sheet is where they
-  // are now visible and fixable.
-  ["INTAKE-002B", "INTAKE-002C"].forEach((qid) => {
-    const flag = qfRow(win, qid).querySelector(".qf-flag");
-    assert.ok(flag && /Still needed/.test(flag.textContent), qid + " should read as outstanding");
-  });
-  win.close();
-});
-
-test("client info: the sheet still reports a queue honestly when there is one", async () => {
-  // A consultant's edit applies after V25, so the only way to see this is
-  // with something the assistant proposed. The sheet must never claim an
-  // edit is saved while it is waiting for a person.
-  const server = statefulFakeOrds();
-  seedClient(server, "c-pend", { answers: { "QUAL-GL": "Yes", "INTAKE-003": "CFO and Controller" } });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-pend");
-
-  // Stand in for an assistant proposal by answering as one.
-  await server.fetchImpl("/ords/admin/insight/clients/c-pend", {
-    method: "PUT", body: JSON.stringify({
-      companyName: "Meridian County", source: "AI_ASSIST",
-      answers: { "INTAKE-003": "CFO, Controller, IT Director" } }),
-  });
-  await openInfoSheet(win, "c-pend");
-
-  assert.equal(server.clients.get("c-pend").answers["INTAKE-003"], "CFO and Controller",
-    "an assistant proposal must not reach the record on its own");
-  assert.match(byId(win, "client-info-changes").textContent, /IT Director/,
-    "and it must be visible, or it is indistinguishable from a lost answer");
-  win.close();
-});
-
-test("client info: filling a blank answer applies straight away", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-fill", { answers: { "QUAL-GL": "Yes" }, skipped: { "INTAKE-002B": true } });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-fill");
-
-  typeInto(win, "INTAKE-002B", "Director of Finance");
-  byId(win, "client-info-save").click();
-  await wait(80);
-
-  assert.equal(server.clients.get("c-fill").answers["INTAKE-002B"], "Director of Finance");
-  assert.doesNotMatch(byId(win, "client-info-status").textContent, /pending/i,
-    "filling a blank is not an edit and must not queue");
-  win.close();
-});
-
-test("client info: a module qualifier is answered in the questionnaire, not the file", async () => {
-  // Qualifiers reshape the whole deck, so they belong in the interview
-  // where the consequence is visible, not in a form beside a phone number.
-  const server = statefulFakeOrds();
-  seedClient(server, "c-yn", { answers: { "QUAL-GL": "Yes", "QUAL-AP": "No" } });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-yn");
-
-  assert.equal(qfRow(win, "QUAL-AP"), null);
-  assert.equal(byId(win, "client-info-fields").querySelectorAll(".qf-yn").length, 0);
-  win.close();
-});
-
-test("client info: with no backend, editing an answer keeps the rest of the record", async () => {
-  const dom = await bootApp((win) => { win.fetch = () => Promise.reject(new Error("offline")); });
-  const win = dom.window;
-  await wait(60);
-  byId(win, "btn-new-client").click();
-  await wait(30);
-  fillText(win, "Harbor Freight Logistics, Harbor");
-  await clickNext(win);
-  fillValid(win, "R. Alvarez");
-  await clickNext(win);
-  await wait(40);
-
-  await openInfoSheet(win, null);
-  typeInto(win, "INTAKE-002", "D. Okafor");
-  byId(win, "client-info-save").click();
-  await wait(60);
-
-  assert.equal(qfField(win, "INTAKE-002").value, "D. Okafor");
-  assert.equal(qfField(win, "INTAKE-001").value, "Harbor Freight Logistics, Harbor",
-    "the in-memory store must merge the edit, not replace the record with it");
-  win.close();
-});
-
-// ---------------------------------------------------------------------------
-// Answer quality: the reviewer decides when it can be reached, a local check
-// decides when it cannot, and neither is ever allowed to be a dead end.
-// ---------------------------------------------------------------------------
-
-// Fake fetch that answers /api/review with a fixed verdict and everything
-// else the way an absent backend would.
-function reviewerFetch(verdict, calls) {
-  return function (url, opts) {
-    const u = String(url);
-    if (u.includes("/api/review")) {
-      if (calls) calls.push(JSON.parse(opts.body));
-      if (verdict === "down") {
-        return Promise.resolve({ ok: false, status: 502, json: () => Promise.resolve({}) });
-      }
-      return Promise.resolve({
-        ok: true, status: 200,
-        json: () => Promise.resolve(verdict),
-        text: () => Promise.resolve(JSON.stringify(verdict)),
-      });
-    }
-    return Promise.reject(new Error("offline"));
-  };
-}
-
 test("quality: keyboard mash is refused outright, with no override", async () => {
   const dom = await bootApp();          // no fetch at all -- local check only
   const win = dom.window;
@@ -1855,91 +1575,6 @@ function captureDownloads(win) {
   return files;
 }
 
-test("config update: recording one requires saying what changed", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-cfg");
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-cfg");
-
-  byId(win, "client-info-regenerate").click();
-  await wait(60);
-
-  assert.equal((server.clients.get("c-cfg").configUpdates || []).length, 0,
-    "an update with no stated reason is the thing this prevents");
-  assert.match(byId(win, "client-info-update-status").textContent, /what changed/i);
-  win.close();
-});
-
-test("config update: recording one stores it and exports a configuration", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-cfg");
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  const files = captureDownloads(win);
-  await openInfoSheet(win, "c-cfg");
-
-  byId(win, "client-info-change-summary").value = "Acquired a subsidiary in Ohio; adding Accounts Receivable.";
-  byId(win, "client-info-regenerate").click();
-  await wait(120);
-
-  const updates = server.clients.get("c-cfg").configUpdates;
-  assert.equal(updates.length, 1);
-  assert.match(updates[0].summary, /Acquired a subsidiary/);
-  assert.equal(files.length, 1, "a configuration should have been exported");
-  assert.match(byId(win, "client-info-update-status").textContent, /recorded and .*exported/i);
-  assert.equal(byId(win, "client-info-change-summary").value, "", "the box clears after recording");
-  win.close();
-});
-
-test("config update: the exported file carries the reason and the previous configuration date", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-cfg");
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  const files = captureDownloads(win);
-  await openInfoSheet(win, "c-cfg");
-
-  byId(win, "client-info-change-summary").value = "Replaced their ERP with EBS 12.2.";
-  byId(win, "client-info-regenerate").click();
-  await wait(120);
-
-  const payload = JSON.parse(files[0]);
-  assert.match(payload.configurationUpdate.summary, /Replaced their ERP/);
-  assert.ok(payload.configurationUpdate.recordedAt, "when it was recorded");
-  assert.ok("previousConfigurationAt" in payload.configurationUpdate,
-    "which configuration this one supersedes");
-  // The answers still travel: this is a configuration, not just a note.
-  assert.ok(payload.answers, "the client's answers are the configuration");
-  win.close();
-});
-
-test("config update: counts the answers actually edited, not the whole record", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-cfg", { answers: { "QUAL-GL": "Yes", "INTAKE-001": "Meridian County Government" } });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  captureDownloads(win);
-  await openInfoSheet(win, "c-cfg");
-
-  typeInto(win, "INTAKE-002", "D. Okafor");
-  byId(win, "client-info-save").click();
-  await wait(100);
-
-  byId(win, "client-info-change-summary").value = "New primary contact.";
-  byId(win, "client-info-regenerate").click();
-  await wait(120);
-
-  const updates = server.clients.get("c-cfg").configUpdates;
-  assert.equal(updates[0].answersChanged, 1,
-    "one answer was edited -- an update that reshapes a client must look different from this");
-  win.close();
-});
-
 test("config update: history shows previous updates, newest first", async () => {
   const server = statefulFakeOrds();
   seedClient(server, "c-cfg", {
@@ -1961,31 +1596,7 @@ test("config update: history shows previous updates, newest first", async () => 
   win.close();
 });
 
-test("config update: works with no backend", async () => {
-  const dom = await bootApp((win) => { win.fetch = () => Promise.reject(new Error("offline")); });
-  const win = dom.window;
-  await wait(60);
-  byId(win, "btn-new-client").click();
-  await wait(30);
-  fillText(win, "Harbor Freight Logistics, Harbor");
-  await clickNext(win);
-  await wait(40);
-  captureDownloads(win);
-
-  await openInfoSheet(win, null);
-  byId(win, "client-info-change-summary").value = "Adding Fixed Assets next quarter.";
-  byId(win, "client-info-regenerate").click();
-  await wait(120);
-
-  assert.match(byId(win, "client-info-updates").textContent, /Adding Fixed Assets/,
-    "the in-memory store should keep the history on the record");
-  win.close();
-});
-
-// ---------------------------------------------------------------------------
-// Update runs: a consultant changing something should not be walked back
-// through decisions an update cannot change.
-// ---------------------------------------------------------------------------
+// Derived from the source, like every other count in this file.
 const INTAKE_ONLY_COUNT = (HTML.match(/intakeOnly: true/g) || []).length;
 
 test("update run: asks fewer questions than intake, and says why", async () => {
@@ -2065,43 +1676,6 @@ test("update run: starts at the first question, not at the first gap", async () 
   assert.match(progressLabel(win), /^1 \//);
   win.close();
 });
-
-test("update run: finishing returns to the configuration update section", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-upd", {
-    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
-  });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-upd");
-  byId(win, "client-info-start-update").click();
-  await wait(80);
-
-  for (let i = 0; i < 120; i++) {
-    if (byId(win, "client-info").classList.contains("show")) break;
-    if (byId(win, "screen-chat").classList.contains("active")) break;
-    const yn = win.document.querySelectorAll(".yn-btn");
-    if (yn.length) clickYn(win, "Yes");
-    else fillValid(win, "A considered answer for this update.");
-    await clickNext(win);
-    await wait(15);
-  }
-  await wait(150);
-
-  // Not the follow-up chat: that exists to chase what an intake missed.
-  assert.equal(byId(win, "screen-chat").classList.contains("active"), false);
-  assert.ok(byId(win, "client-info").classList.contains("show"),
-    "an update should end where the configuration is produced");
-  assert.match(byId(win, "client-info-update-status").textContent, /say what changed/i);
-  win.close();
-});
-
-// ---------------------------------------------------------------------------
-// The guidance panel. Reference material first, model second: a consultant
-// running their first intake needs to know what a question means far more
-// often than they need something generated.
-// ---------------------------------------------------------------------------
 
 test("guidance: the panel explains the question on screen", async () => {
   const dom = await bootApp();
@@ -2229,24 +1803,6 @@ test("guidance: an unreachable assistant says so and leaves the reference materi
 // queue has to be visible, or it is indistinguishable from a lost answer.
 // ---------------------------------------------------------------------------
 
-test("approval: a consultant editing an answer applies it directly", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-appr", { answers: { "QUAL-GL": "Yes", "INTAKE-003": "CFO and Controller" } });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-appr");
-
-  typeInto(win, "INTAKE-003", "CFO, Controller and IT Director");
-  byId(win, "client-info-save").click();
-  await wait(100);
-
-  assert.equal(server.clients.get("c-appr").answers["INTAKE-003"], "CFO, Controller and IT Director",
-    "the edit should be on the record, not in a queue");
-  assert.doesNotMatch(byId(win, "client-info-status").textContent, /pending/i);
-  win.close();
-});
-
 test("approval: an assistant proposal waits, and is shown with what it replaces", async () => {
   const server = statefulFakeOrds();
   seedClient(server, "c-appr", {
@@ -2266,30 +1822,6 @@ test("approval: an assistant proposal waits, and is shown with what it replaces"
   assert.match(section.textContent, /CFO and Controller/);
   assert.match(section.textContent, /IT Director/);
   assert.equal(byId(win, "client-info-changes-label").classList.contains("hidden-section"), false);
-  win.close();
-});
-
-test("approval: approving one applies it and updates the fields above", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-appr", {
-    answers: { "QUAL-GL": "Yes", "INTAKE-003": "CFO and Controller" },
-    changes: [{ id: 5, questionId: "INTAKE-003", questionText: "Who else is a key stakeholder?",
-                previousValue: "CFO and Controller", proposedValue: "CFO, Controller, IT Director",
-                submittedBy: "assistant", submittedAt: "2026-08-24T10:00:00Z", status: "PENDING" }],
-  });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-appr");
-
-  byId(win, "client-info-changes").querySelector("[data-approve]").click();
-  await wait(120);
-
-  assert.equal(server.clients.get("c-appr").answers["INTAKE-003"], "CFO, Controller, IT Director");
-  assert.equal(qfField(win, "INTAKE-003").value, "CFO, Controller, IT Director",
-    "leaving the field showing the old value would contradict what was just done");
-  assert.ok(byId(win, "client-info-changes-label").classList.contains("hidden-section"),
-    "an empty queue hides rather than sitting there empty");
   win.close();
 });
 
@@ -2456,28 +1988,157 @@ test("limits: thousands separators do not count against the seven digits", async
   win.close();
 });
 
-test("limits: the client file honours the same caps", async () => {
-  const server = statefulFakeOrds();
-  seedClient(server, "c-lim", { answers: { "QUAL-GL": "Yes" } });
-  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
-  const win = dom.window;
-  await wait(60);
-  await openInfoSheet(win, "c-lim");
-
-  // INTAKE-005 is a count, but counts are answered in the questionnaire --
-  // the file holds client details, so the typed field here is the contact's
-  // phone number.
-  assert.equal(qfField(win, "INTAKE-002D").maxLength, 250, "a phone field");
-  assert.equal(qfField(win, "INTAKE-003").maxLength, 250, "a prose field, capped at 250");
-  assert.equal(qfField(win, "INTAKE-002C").getAttribute("inputmode"), "email",
-    "and each detail still carries its own type");
-  win.close();
-});
-
 test("limits: the chat holds answers to the same 250 characters", async () => {
   const dom = await bootApp();
   const win = dom.window;
   assert.equal(byId(win, "chat-input").maxLength, 250,
     "what is typed in the chat becomes the answer, so it obeys the answer limit");
+  win.close();
+});
+
+// ---------------------------------------------------------------------------
+// The client file is the record around the answers; the questionnaire holds
+// the answers; the Summary is where a configuration comes out.
+// ---------------------------------------------------------------------------
+
+test("client file: holds no questions at all", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-file", {
+    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-file");
+
+  // It held six of the questionnaire's own questions, which made "one home
+  // per question" untrue -- it was a shorter copy of the same deck.
+  assert.equal(byId(win, "client-info").querySelectorAll(".qf").length, 0);
+  assert.equal(win.document.getElementById("client-info-fields"), null);
+  win.close();
+});
+
+test("client file: renaming the record is not answering a question", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-file", { answers: { "QUAL-GL": "Yes", "INTAKE-001": "Meridian County Government" } });
+  const calls = [];
+  const dom = await bootApp((win) => {
+    win.fetch = (url, opts) => {
+      if ((opts || {}).method === "PUT") calls.push(JSON.parse(opts.body));
+      return server.fetchImpl(url, opts);
+    };
+  });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-file");
+
+  byId(win, "client-info-name").value = "Meridian County Water District";
+  byId(win, "client-info-save").click();
+  await wait(80);
+
+  assert.equal(calls[0].companyName, "Meridian County Water District");
+  assert.ok(!("answers" in calls[0]), "the list label is not an answer");
+  assert.equal(server.clients.get("c-file").answers["INTAKE-001"], "Meridian County Government",
+    "and INTAKE-001 is untouched by it");
+  win.close();
+});
+
+test("client file: the configuration is taken from the Summary, not from here", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-file", { answers: { "QUAL-GL": "Yes" } });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-file");
+
+  assert.equal(win.document.getElementById("client-info-regenerate"), null,
+    "one exporter, at the end of a run");
+  assert.equal(win.document.getElementById("client-info-change-summary"), null);
+  assert.ok(byId(win, "client-info-start-update"), "but the run still starts here");
+  win.close();
+});
+
+test("summary: an update run ends here rather than at the follow-up chat", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-sum", {
+    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-sum");
+  byId(win, "client-info-start-update").click();
+  await wait(80);
+
+  for (let i = 0; i < 120; i++) {
+    if (byId(win, "screen-summary").classList.contains("active")) break;
+    if (byId(win, "screen-chat").classList.contains("active")) break;
+    const yn = win.document.querySelectorAll(".yn-btn");
+    if (yn.length) clickYn(win, "Yes");
+    else fillValid(win, "A considered answer for this update.");
+    await clickNext(win);
+    await wait(10);
+  }
+  await wait(120);
+
+  assert.equal(byId(win, "screen-chat").classList.contains("active"), false,
+    "the chat chases what an intake missed; an update was just walked on purpose");
+  assert.ok(byId(win, "screen-summary").classList.contains("active"));
+  assert.ok(byId(win, "summary-change-summary"), "and this is where what changed is said");
+  win.close();
+});
+
+test("summary: exporting with a summary records the update and carries the reason", async () => {
+  const server = statefulFakeOrds();
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  const files = captureDownloads(win);
+  byId(win, "btn-new-client").click();
+  await fillIntake(win);
+  await answerQualifiers(win);
+  await finishRemainingQuestions(win);
+  await wait(1400);
+  byId(win, "chat-input").value = "Everything else is covered.";
+  byId(win, "chat-send").click();
+  await wait(1600);
+  assert.ok(byId(win, "screen-summary").classList.contains("active"));
+
+  const id = Array.from(server.clients.keys())[0];
+  byId(win, "summary-change-summary").value = "Acquired a subsidiary in Ohio.";
+  byId(win, "btn-export").click();
+  await wait(160);
+
+  assert.equal(server.clients.get(id).configUpdates.length, 1);
+  assert.match(server.clients.get(id).configUpdates[0].summary, /subsidiary in Ohio/);
+  const payload = JSON.parse(files[files.length - 1]);
+  assert.match(payload.configurationUpdate.summary, /subsidiary in Ohio/);
+  assert.ok(payload.answers, "a configuration is the answers, not just the reason");
+  win.close();
+});
+
+test("summary: the first configuration needs no reason", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-sum", {
+    answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
+  });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  const files = captureDownloads(win);
+  byId(win, "nav-clients").click();
+  await wait(40);
+  byId(win, "records-list-area").querySelector('[data-open="c-sum"]').click();
+  await wait(60);
+  win.document.querySelector('[data-crumb="summary"]').click();
+  await wait(120);
+
+  byId(win, "btn-export").click();
+  await wait(140);
+
+  assert.equal(files.length, 1, "it still exports");
+  assert.equal((server.clients.get("c-sum").configUpdates || []).length, 0,
+    "and records nothing, because nothing has changed from anything yet");
+  assert.match(byId(win, "summary-export-status").textContent, /exported/i);
   win.close();
 });
