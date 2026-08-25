@@ -1044,7 +1044,8 @@ async function openInfoSheet(win, id) {
   await wait(40);
   const btn = byId(win, "records-list-area").querySelector(
     id ? `[data-info="${id}"]` : "[data-info]");
-  assert.ok(btn, "the client row should offer a client-information button");
+  assert.ok(btn, "the client row should offer a client-file button");
+  assert.equal(btn.textContent, "Client file", "labelled, not a glyph");
   btn.click();
   await wait(40);
   return btn;
@@ -2351,5 +2352,22 @@ test("approval: no backend means nothing pending, not an error", async () => {
   assert.ok(byId(win, "client-info").classList.contains("show"));
   assert.ok(byId(win, "client-info-changes-label").classList.contains("hidden-section"),
     "the in-memory store has no approval workflow, so there is genuinely nothing pending");
+  win.close();
+});
+
+test("roster: the two ways into a client are labelled, not two identical glyphs", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-row");
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+
+  const row = byId(win, "records-list-area").querySelector(".client-row");
+  assert.equal(row.querySelector("[data-info]").textContent, "Client file");
+  assert.equal(row.querySelector("[data-open]").textContent, "Questions");
+  // Both lead into the client's answers by different routes, so each says
+  // which route it is on hover too.
+  assert.match(row.querySelector("[data-info]").title, /whole record/i);
+  assert.match(row.querySelector("[data-open]").title, /first unanswered/i);
   win.close();
 });

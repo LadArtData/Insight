@@ -252,7 +252,7 @@
   .client-info { flex: 1; min-width: 0; }
   .client-name { font-weight: 700; font-size: 0.92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .client-meta { font-size: 0.72rem; color: var(--ink-muted); margin-top: 2px; }
-  .client-progress-track { width: 90px; height: 5px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; flex-shrink: 0; }
+  .client-progress-track { width: 64px; height: 5px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; flex-shrink: 0; }
   .client-progress-fill { height: 100%; background: linear-gradient(90deg, var(--orange-soft), var(--orange)); border-radius: 999px; }
   .client-actions { display: flex; gap: 8px; flex-shrink: 0; }
   .icon-btn {
@@ -261,6 +261,12 @@
   }
   .icon-btn:hover { background: rgba(255,255,255,0.08); }
   .icon-btn.danger:hover { border-color: #ff8a80; color: #ff8a80; }
+  .row-btn {
+    height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line);
+    background: rgba(255,255,255,0.03); color: var(--ink-light); cursor: pointer;
+    font-family: inherit; font-size: 0.72rem; font-weight: 600; white-space: nowrap;
+  }
+  .row-btn:hover { background: rgba(255,255,255,0.08); border-color: var(--orange-soft); color: var(--orange-soft); }
   .records-empty { text-align: center; padding: 40px 20px; color: var(--ink-muted); font-size: 0.88rem; }
   .records-loading { text-align: center; padding: 40px 20px; color: var(--ink-muted); font-size: 0.85rem; }
   .records-note {
@@ -453,7 +459,8 @@
     <div id="client-info-updates"></div>
     <textarea class="sheet-input" id="client-info-change-summary" rows="3" maxlength="2000" placeholder="What changed since the last configuration?"></textarea>
     <div class="sheet-actions">
-      <button type="button" class="btn btn-ghost" id="client-info-start-update">Walk through the questions</button>
+      <button type="button" class="btn btn-ghost" id="client-info-start-update"
+              title="Only the questions an update can change, starting at the top">Walk the update questions</button>
       <button type="button" class="btn btn-primary" id="client-info-regenerate">Record update &amp; export configuration</button>
     </div>
     <p class="sheet-status" id="client-info-update-status"></p>
@@ -1563,10 +1570,15 @@
           '<div class="client-meta">' + (c.primaryContact ? escapeHtml(c.primaryContact) + " · " : "") + "Updated " + updated + '</div>' +
         '</div>' +
         '<div class="client-progress-track"><div class="client-progress-fill" style="width:' + (c.percent || 0) + '%"></div></div>' +
+        // Words rather than glyphs. Two buttons here both lead into the
+        // client's answers by different routes, and an icon cannot say
+        // which -- ☰ and ↗ side by side read as "some kind of open" twice.
         '<div class="client-actions">' +
-          '<button type="button" class="icon-btn" data-info="' + escapeHtml(c.id) + '" aria-label="Client information" title="Client information">☰</button>' +
-          '<button type="button" class="icon-btn" data-open="' + escapeHtml(c.id) + '" aria-label="Open">↗</button>' +
-          '<button type="button" class="icon-btn danger" data-delete="' + escapeHtml(c.id) + '" aria-label="Delete">🗑</button>' +
+          '<button type="button" class="row-btn" data-info="' + escapeHtml(c.id) + '" ' +
+            'title="The whole record: details, every answer, notes and updates">Client file</button>' +
+          '<button type="button" class="row-btn" data-open="' + escapeHtml(c.id) + '" ' +
+            'title="Walk the questionnaire, picking up at the first unanswered question">Questions</button>' +
+          '<button type="button" class="icon-btn danger" data-delete="' + escapeHtml(c.id) + '" aria-label="Delete" title="Delete">🗑</button>' +
         '</div>';
       wrap.appendChild(row);
     });
