@@ -1089,9 +1089,8 @@ test("client info: the sheet opens populated with the saved name and answers", a
   win.close();
 });
 
-test("client info: every in-scope question is editable, out-of-scope modules are not shown", async () => {
+test("client info: the file holds client details only, not the questionnaire", async () => {
   const server = statefulFakeOrds();
-  // GL only: AP/AR/FA/CM declined, so their Phase 3 questions are out of scope.
   seedClient(server, "c-scope", {
     answers: { "QUAL-GL": "Yes", "QUAL-AP": "No", "QUAL-AR": "No", "QUAL-FA": "No", "QUAL-CM": "No" },
   });
@@ -1100,11 +1099,34 @@ test("client info: every in-scope question is editable, out-of-scope modules are
   await wait(60);
   await openInfoSheet(win, "c-scope");
 
+  // Who the client is and who to call is a form. What the client needs is
+  // an interview, and belongs in the questionnaire -- having both here made
+  // this a second way to answer the same deck.
   const rows = byId(win, "client-info-fields").querySelectorAll(".qf");
-  assert.equal(rows.length, GL_ONLY_DECK,
-    "the sheet should show exactly the client's own scope");
-  assert.ok(qfRow(win, "GL-001"), "GL is always in scope");
-  assert.equal(qfRow(win, "AP-001"), null, "a declined module's questions must not appear");
+  assert.equal(rows.length, 6, "the client-identification questions and no others");
+  assert.ok(qfRow(win, "INTAKE-002C"), "the contact's email is a detail");
+  assert.equal(qfRow(win, "GL-001"), null, "a GL discovery question is not");
+  assert.equal(qfRow(win, "QUAL-AP"), null, "nor is a module qualifier");
+  win.close();
+});
+
+test("client info: the details it holds are the ones an update run never asks", async () => {
+  // Not a tidiness choice. These are marked intake-only, so an update run
+  // skips them -- without this form a corrected email address would need a
+  // full intake run to fix.
+  const server = statefulFakeOrds();
+  seedClient(server, "c-scope", { answers: { "QUAL-GL": "Yes" } });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-scope");
+
+  const shown = Array.from(byId(win, "client-info-fields").querySelectorAll(".qf"))
+    .map((r) => r.dataset.qid);
+  shown.forEach((qid) => {
+    const line = HTML.split("\n").find((l) => l.includes(`id: "${qid}"`));
+    assert.match(line, /intakeOnly: true/, qid + " should be intake-only");
+  });
   win.close();
 });
 
@@ -1590,7 +1612,9 @@ test("client info: filling a blank answer applies straight away", async () => {
   win.close();
 });
 
-test("client info: a yes/no question edits through its buttons", async () => {
+test("client info: a module qualifier is answered in the questionnaire, not the file", async () => {
+  // Qualifiers reshape the whole deck, so they belong in the interview
+  // where the consequence is visible, not in a form beside a phone number.
   const server = statefulFakeOrds();
   seedClient(server, "c-yn", { answers: { "QUAL-GL": "Yes", "QUAL-AP": "No" } });
   const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
@@ -1598,15 +1622,8 @@ test("client info: a yes/no question edits through its buttons", async () => {
   await wait(60);
   await openInfoSheet(win, "c-yn");
 
-  const row = qfRow(win, "QUAL-AP");
-  const yes = Array.from(row.querySelectorAll(".qf-yn button")).find((b) => b.textContent === "Yes");
-  yes.click();
-  byId(win, "client-info-save").click();
-  await wait(80);
-
-  const sent = server.clients.get("c-yn").answers;
-  assert.ok(sent["QUAL-AP"] === "Yes" || byId(win, "client-info-status").textContent.match(/pending/i),
-    "the qualifier should either flip or be queued, not be ignored");
+  assert.equal(qfRow(win, "QUAL-AP"), null);
+  assert.equal(byId(win, "client-info-fields").querySelectorAll(".qf-yn").length, 0);
   win.close();
 });
 
@@ -2447,8 +2464,13 @@ test("limits: the client file honours the same caps", async () => {
   await wait(60);
   await openInfoSheet(win, "c-lim");
 
-  assert.equal(qfField(win, "INTAKE-005").maxLength, 9, "a count field, capped at seven digits");
+  // INTAKE-005 is a count, but counts are answered in the questionnaire --
+  // the file holds client details, so the typed field here is the contact's
+  // phone number.
+  assert.equal(qfField(win, "INTAKE-002D").maxLength, 250, "a phone field");
   assert.equal(qfField(win, "INTAKE-003").maxLength, 250, "a prose field, capped at 250");
+  assert.equal(qfField(win, "INTAKE-002C").getAttribute("inputmode"), "email",
+    "and each detail still carries its own type");
   win.close();
 });
 

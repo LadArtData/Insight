@@ -444,6 +444,28 @@ that instance's Security List/NSG (separate from 1521's rule) or the page
 won't load from outside. `web/index.html` is a plain copy, not a symlink --
 if you edit the app UI, copy the updated file into `web/index.html` too.
 
+## Two screens, two jobs
+The client file and the questionnaire are not two ways to do one thing.
+
+**The questionnaire is for sitting with a client**: one question at a time,
+guidance beside it, Skip, "Not known yet", the follow-up chat. An interview
+cannot be run off a form. Every answer is given here.
+
+**The client file is for desk work**: who the client is and who to call,
+the notes, the configuration updates, and whatever the assistant has
+proposed and is waiting on a person. It holds the six client-identification
+questions and nothing else.
+
+That last part is not tidiness. Those six are marked `ask_on_update = 0`, so
+an update run never asks them -- without a form for them, a corrected email
+address would need a full intake run to fix. Everything an update run *does*
+ask is answered in the questionnaire, which is why the file no longer
+carries a copy of the deck: two places to do one job is how the two drift
+and how a person stops trusting either.
+
+The roster's two buttons say which is which: **Client file** and
+**Questions**.
+
 ## Guidance panel
 `questions/insight_question_guidance.json` holds per-question coaching for
 whoever is running the intake: what Oracle setup the answer feeds, why the
