@@ -47,11 +47,11 @@ jobs:
 
       # Only flask: the suite stubs the OCI client, so installing the full
       # SDK here would add a minute to every run to test nothing extra.
-      - name: Chat proxy test suite
+      - name: Chat proxy and workbook reader test suites
         working-directory: INSIGHT_oracle_26node_apex_python_container/python
         run: |
-          pip install flask
-          python -m unittest test_INSIGHT_chat_proxy
+          pip install flask openpyxl
+          python -m unittest test_INSIGHT_chat_proxy test_INSIGHT_workbook_reader
 
       # The /api/chat upstream port is written in two places that must
       # agree -- the nginx template and the entrypoint's constant. A

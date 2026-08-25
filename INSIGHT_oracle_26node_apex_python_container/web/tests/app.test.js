@@ -2163,3 +2163,189 @@ test("basics: saving nothing says so rather than pretending", async () => {
   assert.match(byId(win, "client-info-status").textContent, /nothing changed/i);
   win.close();
 });
+
+// ---------------------------------------------------------------------------
+// Importing a client's existing spreadsheet. Nothing is saved by uploading;
+// every proposal shows the cell it came from and has to be accepted.
+// ---------------------------------------------------------------------------
+
+function importFetch(response, status, calls) {
+  return function (url, opts) {
+    if (String(url).includes("/api/import")) {
+      if (calls) calls.push(opts);
+      return Promise.resolve({
+        ok: (status || 200) < 400,
+        status: status || 200,
+        json: () => Promise.resolve(response),
+      });
+    }
+    return Promise.reject(new Error("offline"));
+  };
+}
+
+function dropFile(win, name) {
+  const input = byId(win, "import-file");
+  // jsdom will not let a FileList be assigned, so the handler is invoked
+  // with the shape it actually reads.
+  const file = new win.File(["x"], name || "workbook.xlsx");
+  Object.defineProperty(input, "files", { value: [file], configurable: true });
+  input.dispatchEvent(new win.Event("change"));
+}
+
+const PROPOSALS = {
+  proposals: [
+    { questionId: "INTAKE-001", answer: "Outagamie County.",
+      evidence: [{ ref: "Ledger!D9", value: "Outagamie County" }],
+      verification: { status: "supported", overlap: 1 } },
+    { questionId: "GL-002", answer: "They report in euros.",
+      evidence: [{ ref: "Ledger!E9", value: "USD" }],
+      verification: { status: "unsupported", overlap: 0 } },
+  ],
+  discarded: 3,
+  sheets_read: ["Ledger", "Legal Entity"],
+  truncated: false,
+  omitted_sheets: [],
+};
+
+test("import: proposals arrive with the cell each came from", async () => {
+  const dom = await bootApp((win) => { win.fetch = importFetch(PROPOSALS); });
+  const win = dom.window;
+  await wait(40);
+  dropFile(win);
+  await wait(120);
+
+  assert.ok(byId(win, "import-review").classList.contains("show"));
+  const text = byId(win, "import-proposals").textContent;
+  assert.match(text, /Outagamie County/);
+  // The citation is the point: an import nobody can check is a leap of faith.
+  assert.match(text, /Ledger!D9/);
+  win.close();
+});
+
+test("import: an answer its own citation does not support is flagged, not hidden", async () => {
+  const dom = await bootApp((win) => { win.fetch = importFetch(PROPOSALS); });
+  const win = dom.window;
+  await wait(40);
+  dropFile(win);
+  await wait(120);
+
+  // Kept visible on purpose -- a reviewer has to see it to reject it.
+  assert.match(byId(win, "import-proposals").textContent, /does not back this up/i);
+  win.close();
+});
+
+test("import: says how many were discarded for citing nothing verifiable", async () => {
+  const dom = await bootApp((win) => { win.fetch = importFetch(PROPOSALS); });
+  const win = dom.window;
+  await wait(40);
+  dropFile(win);
+  await wait(120);
+
+  assert.match(byId(win, "import-status").textContent, /3 discarded/);
+  win.close();
+});
+
+test("import: uploading saves nothing until the proposals are accepted", async () => {
+  const server = statefulFakeOrds();
+  const calls = [];
+  const dom = await bootApp((win) => {
+    win.fetch = (url, opts) => {
+      if (String(url).includes("/api/import")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(PROPOSALS) });
+      }
+      calls.push((opts || {}).method || "GET");
+      return server.fetchImpl(url, opts);
+    };
+  });
+  const win = dom.window;
+  await wait(60);
+  dropFile(win);
+  await wait(120);
+
+  assert.equal(calls.filter((m) => m === "PUT").length, 0, "nothing written by uploading");
+  assert.equal(server.clients.size, 0);
+  win.close();
+});
+
+test("import: accepting creates the client with DOCUMENT_IMPORT provenance", async () => {
+  const server = statefulFakeOrds();
+  const sent = [];
+  const dom = await bootApp((win) => {
+    win.fetch = (url, opts) => {
+      if (String(url).includes("/api/import")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(PROPOSALS) });
+      }
+      if ((opts || {}).method === "PUT") sent.push(JSON.parse(opts.body));
+      return server.fetchImpl(url, opts);
+    };
+  });
+  const win = dom.window;
+  await wait(60);
+  dropFile(win);
+  await wait(120);
+  byId(win, "import-name").value = "Outagamie County";
+  byId(win, "import-accept").click();
+  await wait(150);
+
+  assert.equal(sent.length, 1);
+  // The record must always be able to say these came out of a file rather
+  // than out of a conversation with anyone.
+  assert.equal(sent[0].source, "DOCUMENT_IMPORT");
+  assert.equal(sent[0].answers["INTAKE-001"], "Outagamie County.");
+  assert.equal(server.clients.size, 1);
+  win.close();
+});
+
+test("import: a rejected proposal is not written", async () => {
+  const server = statefulFakeOrds();
+  const sent = [];
+  const dom = await bootApp((win) => {
+    win.fetch = (url, opts) => {
+      if (String(url).includes("/api/import")) {
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(PROPOSALS) });
+      }
+      if ((opts || {}).method === "PUT") sent.push(JSON.parse(opts.body));
+      return server.fetchImpl(url, opts);
+    };
+  });
+  const win = dom.window;
+  await wait(60);
+  dropFile(win);
+  await wait(120);
+
+  byId(win, "import-proposals").querySelectorAll("[data-reject-import]")[1].click();
+  byId(win, "import-name").value = "Outagamie County";
+  byId(win, "import-accept").click();
+  await wait(150);
+
+  assert.ok(!("GL-002" in sent[0].answers), "the rejected one must not be saved");
+  assert.ok("INTAKE-001" in sent[0].answers);
+  win.close();
+});
+
+test("import: a file that cannot be read says why", async () => {
+  const dom = await bootApp((win) => {
+    win.fetch = importFetch({ error: "That file could not be read as a spreadsheet." }, 400);
+  });
+  const win = dom.window;
+  await wait(40);
+  dropFile(win, "notes.txt");
+  await wait(120);
+
+  assert.match(byId(win, "import-status").textContent, /could not be read/i);
+  win.close();
+});
+
+test("import: an unreachable reader says so rather than failing silently", async () => {
+  const dom = await bootApp((win) => {
+    win.fetch = importFetch({ error: "The assistant is temporarily unavailable." }, 502);
+  });
+  const win = dom.window;
+  await wait(40);
+  dropFile(win);
+  await wait(120);
+
+  assert.match(byId(win, "import-status").textContent, /unavailable/i);
+  assert.ok(byId(win, "import-review").classList.contains("show"));
+  win.close();
+});

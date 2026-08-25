@@ -238,7 +238,8 @@
 
   /* ================= SCREEN 5: CLIENT RECORDS ================= */
   .records-card { width: 100%; max-width: 640px; text-align: left; }
-  .records-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
+  .records-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 22px; }
+  .records-actions { display: flex; gap: 10px; flex-shrink: 0; }
   .records-title { font-size: 1.3rem; font-weight: 800; margin: 0; }
   .records-sub { font-size: 0.85rem; color: var(--ink-muted); margin: 4px 0 0; }
   .records-list { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto; padding-right: 2px; }
@@ -329,6 +330,14 @@
   .change-col { flex: 1; min-width: 0; }
   .change-col .guide-label { margin-bottom: 3px; }
   .change-was { color: var(--ink-muted); text-decoration: line-through; word-break: break-word; }
+  .imp-row { background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
+  .imp-row.rejected { opacity: 0.45; }
+  .imp-q { font-size: 0.78rem; color: var(--ink-muted); margin-bottom: 4px; }
+  .imp-a { font-size: 0.85rem; }
+  .imp-cite { font-size: 0.68rem; color: var(--ink-muted); margin-top: 8px; word-break: break-word; }
+  .imp-cite code { font-family: inherit; color: var(--orange-soft); }
+  .imp-meta { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+  .imp-actions { margin-left: auto; display: flex; gap: 6px; }
   .change-now { color: var(--ink-light); word-break: break-word; }
   .hidden-section { display: none; }
 
@@ -421,6 +430,31 @@
   <button type="button" id="pending-approval-banner-close" aria-label="Dismiss">✕</button>
 </div>
 
+
+<div class="sheet" id="import-review" role="dialog" aria-modal="true" aria-labelledby="import-title">
+  <div class="sheet-card">
+    <div class="sheet-head">
+      <div>
+        <p class="sheet-title" id="import-title">From the spreadsheet</p>
+        <p class="sheet-sub" id="import-sub">&nbsp;</p>
+      </div>
+      <button type="button" class="icon-btn" id="import-close" aria-label="Close">✕</button>
+    </div>
+
+    <p class="sheet-label">Client name</p>
+    <input type="text" class="sheet-input" id="import-name" maxlength="300" placeholder="What to call this client">
+
+    <div class="sheet-divider"></div>
+    <p class="sheet-label">Proposed answers</p>
+    <p class="sheet-hint" id="import-hint">Each one shows the cell it came from. Nothing is saved until you accept it.</p>
+    <div id="import-proposals"></div>
+
+    <div class="sheet-actions">
+      <button type="button" class="btn btn-primary" id="import-accept">Create client from accepted</button>
+      <span class="sheet-status" id="import-status"></span>
+    </div>
+  </div>
+</div>
 
 <div class="sheet" id="client-info" role="dialog" aria-modal="true" aria-labelledby="client-info-title">
   <div class="sheet-card">
@@ -521,7 +555,12 @@
           <p class="records-title">Client Records</p>
           <p class="records-sub">Pull up a past client to review or edit, or start a new one.</p>
         </div>
-        <button type="button" class="btn btn-primary" id="btn-new-client">+ New Client</button>
+        <div class="records-actions">
+          <button type="button" class="btn btn-ghost" id="btn-import-client"
+                  title="Read a client's existing spreadsheet and propose answers from it">Start from a spreadsheet</button>
+          <button type="button" class="btn btn-primary" id="btn-new-client">+ New Client</button>
+        </div>
+        <input type="file" id="import-file" accept=".xlsx" hidden>
       </div>
       <div id="records-list-area">
         <div class="records-loading">Loading client records…</div>
@@ -2047,6 +2086,155 @@
       await reloadInfoNotes();
     } catch (err) {
       setInfoStatus("Couldn't add that note: " + err.message, false);
+    }
+  }));
+
+  // ---------------- Import from a spreadsheet ----------------
+  // For a client already being served there is no interview to run: the
+  // engagement happened years ago and a hand-filled workbook is the only
+  // record of it. This reads that workbook and proposes answers from it.
+  //
+  // Nothing is saved by uploading. Every proposal shows the cell it came from
+  // and has to be accepted, because an import nobody checked produces a client
+  // file full of plausible unverified values -- worse than an empty one, since
+  // an empty one is visibly empty.
+  var importSheet = document.getElementById("import-review");
+  var importProposals = [];   // [{questionId, answer, evidence, verification, rejected}]
+
+  function setImportStatus(message, ok) {
+    var el = document.getElementById("import-status");
+    el.textContent = message || "";
+    el.classList.toggle("ok", !!ok);
+  }
+
+  document.getElementById("btn-import-client").addEventListener("click", safe(function () {
+    document.getElementById("import-file").click();
+  }));
+
+  document.getElementById("import-file").addEventListener("change", safe(async function (e) {
+    var file = e.target.files && e.target.files[0];
+    e.target.value = "";                     // so the same file can be picked twice
+    if (!file) return;
+
+    setImportStatus("");
+    importProposals = [];
+    document.getElementById("import-proposals").innerHTML =
+      '<div class="note-empty">Reading ' + escapeHtml(file.name) + '…</div>';
+    document.getElementById("import-name").value = file.name.replace(/\.[^.]+$/, "");
+    document.getElementById("import-sub").textContent = file.name;
+    importSheet.classList.add("show");
+
+    // Only the questions this client could be asked. Sending the whole deck
+    // would invite answers to module questions the spreadsheet cannot speak to.
+    var questions = ALL_QUESTIONS.map(function (q) {
+      return { id: q.id, text: q.text, type: q.type };
+    });
+
+    var form = new FormData();
+    form.append("file", file);
+    form.append("questions", JSON.stringify(questions));
+
+    try {
+      var res = await fetch("/api/import", { method: "POST", body: form });
+      var payload = await res.json().catch(function () { return null; });
+      if (!res.ok) {
+        renderImportProposals([]);
+        setImportStatus((payload && payload.error) ||
+          "That spreadsheet could not be read.", false);
+        return;
+      }
+      importProposals = (payload.proposals || []).map(function (p) {
+        p.rejected = false;
+        return p;
+      });
+      renderImportProposals(importProposals);
+      var parts = [importProposals.length + " answers proposed from " +
+                   (payload.sheets_read || []).length + " sheets"];
+      if (payload.discarded) {
+        // Said out loud rather than hidden: these were dropped because their
+        // citations did not check out, and that is worth knowing.
+        parts.push(payload.discarded + " discarded for citing nothing verifiable");
+      }
+      if (payload.truncated) {
+        parts.push("some sheets were too large to read in full");
+      }
+      setImportStatus(parts.join(". ") + ".", true);
+    } catch (err) {
+      renderImportProposals([]);
+      setImportStatus("Couldn't reach the reader: " + err.message, false);
+    }
+  }));
+
+  function renderImportProposals(list) {
+    var wrap = document.getElementById("import-proposals");
+    wrap.innerHTML = "";
+    if (!list.length) {
+      wrap.innerHTML = '<div class="note-empty">Nothing proposed.</div>';
+      return;
+    }
+    list.forEach(function (p, idx) {
+      var q = ALL_QUESTIONS.find(function (x) { return x.id === p.questionId; });
+      var unsupported = p.verification && p.verification.status === "unsupported";
+      var row = document.createElement("div");
+      row.className = "imp-row";
+      row.innerHTML =
+        '<div class="imp-q">' + escapeHtml(q ? q.text : p.questionId) + '</div>' +
+        '<div class="imp-a">' + escapeHtml(p.answer) + '</div>' +
+        '<div class="imp-cite">from ' +
+          p.evidence.map(function (e) {
+            return '<code>' + escapeHtml(e.ref) + '</code> ' + escapeHtml((e.value || "").slice(0, 40));
+          }).join(" · ") +
+        '</div>' +
+        '<div class="imp-meta">' +
+          (unsupported
+            ? '<span class="qf-flag needed">Cited cell does not back this up</span>'
+            : '<span class="note-tag ai">From the spreadsheet</span>') +
+          '<span class="imp-actions">' +
+            '<button type="button" class="icon-btn danger" data-reject-import="' + idx + '" title="Reject">✕</button>' +
+          '</span>' +
+        '</div>';
+      wrap.appendChild(row);
+    });
+
+    wrap.querySelectorAll("[data-reject-import]").forEach(function (btn) {
+      btn.addEventListener("click", safe(function () {
+        var p = list[Number(btn.dataset.rejectImport)];
+        p.rejected = !p.rejected;
+        btn.closest(".imp-row").classList.toggle("rejected", p.rejected);
+      }));
+    });
+  }
+
+  document.getElementById("import-close").addEventListener("click", safe(function () {
+    importSheet.classList.remove("show");
+  }));
+
+  document.getElementById("import-accept").addEventListener("click", safe(async function () {
+    var name = document.getElementById("import-name").value.trim();
+    if (!name) { setImportStatus("Give this client a name first.", false); return; }
+
+    var accepted = importProposals.filter(function (p) { return !p.rejected; });
+    if (!accepted.length) { setImportStatus("Nothing accepted.", false); return; }
+
+    var answers = {};
+    accepted.forEach(function (p) { answers[p.questionId] = p.answer.slice(0, MAX_ANSWER_LEN); });
+
+    var id = "client_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8);
+    try {
+      // DOCUMENT_IMPORT, so the record can always say these came out of a
+      // file rather than out of a conversation with anyone.
+      await patchClientProfile(id, {
+        companyName: name,
+        source: "DOCUMENT_IMPORT",
+        actor: "workbook-import",
+        answers: answers
+      });
+      importSheet.classList.remove("show");
+      clearActiveClient();
+      showScreen("records");
+      await renderRecordsScreen();
+    } catch (err) {
+      setImportStatus("Couldn't create that client: " + err.message, false);
     }
   }));
 

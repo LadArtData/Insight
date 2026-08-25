@@ -309,6 +309,7 @@ sql/V22__configuration_updates.sql             -- insight_config_updates: why a 
 sql/V23__question_update_scope.sql             -- insight_questions.ask_on_update
 sql/V24__questionnaire_seed_questions.sql      -- re-seeds the questions, now carrying ask_on_update
 sql/V25__approval_only_for_ai_changes.sql      -- only AI_ASSIST changes queue; consultant edits apply and are audited
+sql/V26__imported_answer_evidence.sql          -- DOCUMENT_IMPORT source, insight_answer_evidence, in-database uploads
 ```
 
 ### Intake and update are different runs
@@ -475,6 +476,43 @@ been walked end to end on purpose.
 
 The roster's two buttons say which is which: **Client file** and
 **Questions**.
+
+## Importing a client's existing spreadsheet
+Clients already being served have no discovery interview to reconstruct: the
+engagement happened years ago and a hand-filled workbook is the only record of
+it. **Start from a spreadsheet** on the client list reads that workbook and
+proposes answers from it.
+
+`python/INSIGHT_workbook_reader.py` does the part that decides whether this
+works at all. A real configuration workbook is 33 sheets and 700 KB, one sheet
+carrying thousands of rows; none of that fits in a model's context. The reader
+reduces it to a cell-addressed digest -- roughly 20,000 tokens from a 635 KB
+file, with every sheet represented and nothing truncated -- and keeps the count
+of what it left out, because "1,685 further rows" is itself an answer.
+
+It makes no structural assumptions. An earlier version tried to find each
+sheet's header row and was wrong on every sheet that mattered: these sheets are
+sequences of blocks, so the header heuristic picked a sub-table far down and
+discarded everything above it, which is where the facts were.
+
+**Every proposed answer must cite a cell, and every citation is checked**
+against the file before anyone sees it. Answers citing nothing, or citing empty
+cells, are discarded and counted. Answers whose cited cell exists but does not
+support them are kept and flagged -- a reviewer has to see one to reject it.
+That check is what separates an auditable import from a confident guess: an
+import nobody can check produces a client file full of plausible unverified
+values, which is worse than an empty one, because an empty one is visibly
+empty.
+
+Nothing is written by uploading. Proposals are reviewed, individually
+rejectable, and only then written -- with `answer_source = DOCUMENT_IMPORT`, so
+the record can always say these came out of a file rather than a conversation.
+`V26` also widens the approval gate to cover that source, so re-importing an
+updated spreadsheet cannot silently overwrite an answer a consultant confirmed.
+
+Uploads are held in memory for one request and never written to disk: the
+container is ephemeral and a client's configuration workbook is not something
+to leave in `/tmp` after a crash.
 
 ## Guidance panel
 `questions/insight_question_guidance.json` holds per-question coaching for

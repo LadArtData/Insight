@@ -23,6 +23,7 @@ COPY INSIGHT_chat_proxy_requirements.txt .
 RUN pip install --no-cache-dir -r INSIGHT_chat_proxy_requirements.txt
 
 COPY INSIGHT_chat_proxy.py .
+COPY INSIGHT_workbook_reader.py .
 
 # In this image the proxy IS the service, reached from another container
 # over the compose network, so it must bind every interface. The script's

@@ -101,6 +101,18 @@ server {
         client_max_body_size 16k;
     }
 
+    # Reading a client's whole spreadsheet: a large upload in, a long model
+    # call, and a person who has just clicked Upload and expects to wait.
+    # Generous on both size and time for that reason, and the only route here
+    # that accepts a body worth megabytes.
+    location /api/import {
+        proxy_pass http://127.0.0.1:5001/import;
+        proxy_set_header Host $host;
+        proxy_read_timeout 300s;
+        proxy_request_buffering on;
+        client_max_body_size 16m;
+    }
+
     location /api/review {
         proxy_pass http://127.0.0.1:5001/review;
         proxy_set_header Host $host;

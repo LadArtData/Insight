@@ -348,6 +348,89 @@ def call_explain(question_text, eyebrow, guidance, consultant_question):
         build_explain_prompt(question_text, eyebrow, guidance, consultant_question))
 
 
+# Reading a client's existing spreadsheet.
+#
+# For a client already being served there is no discovery interview to run --
+# the engagement happened years ago and a hand-filled workbook is the only
+# record of it. So this asks the model to answer the questionnaire FROM that
+# workbook, and to say which cell each answer came from.
+#
+# The citation requirement is not politeness. Every answer is checked against
+# the cell it names before anyone sees it, which turns "the AI read it" into
+# something auditable. An import nobody can audit produces a client file full
+# of plausible unverified values, which is worse than an empty one, because an
+# empty one is visibly empty.
+IMPORT_FRAMING = """You are reading a client's completed Oracle Fusion configuration \
+spreadsheet in order to answer a discovery questionnaire about that client. The spreadsheet \
+is given to you as a list of cells, each with its address.
+
+For each question you can answer FROM THE SPREADSHEET, return the answer and the addresses of \
+the cells it came from.
+
+Rules, in order of importance:
+
+1. Never answer from general knowledge. If the spreadsheet does not say, omit the question \
+entirely. A missing answer is a true statement about what was recorded; an invented one is not, \
+and it is far more expensive because nobody can tell it apart from a real one.
+2. Every answer must cite at least one cell address, copied exactly as given. Answers without \
+citations are discarded before anyone sees them, so an uncited answer is wasted work.
+3. An empty section is itself an answer. If a sheet exists but has no rows, say so plainly -- \
+"none defined" -- and cite the sheet's header cell. That is a finding, not a gap.
+4. Keep each answer under 240 characters and factual. No hedging, no recommendations.
+5. If the spreadsheet contradicts itself, still answer, and describe the contradiction in the \
+answer rather than choosing a side.
+
+Respond with ONLY a JSON object, no other text, in exactly this shape:
+{"answers": [{"questionId": "GL-004", "answer": "...", "evidence": ["Sheet!A1", "Sheet!B2"]}]}"""
+
+
+def build_import_prompt(questions, digest_text):
+    lines = [IMPORT_FRAMING, "", "QUESTIONS:"]
+    for q in questions:
+        lines.append('%s (%s): %s' % (q.get("id"), q.get("type", "text"), q.get("text", "")))
+    lines += ["", "SPREADSHEET:", digest_text]
+    return "\n".join(lines)
+
+
+def parse_import_response(raw_text):
+    """
+    Parses proposed answers. Anything malformed yields none at all.
+
+    Deliberately all-or-nothing: a half-parsed import is indistinguishable
+    from a complete one to whoever is looking at the review screen, and
+    "the model proposed 4 answers" when it proposed 40 is a silent loss.
+    """
+    try:
+        parsed = json.loads(raw_text.strip())
+        proposals = parsed.get("answers")
+        if not isinstance(proposals, list):
+            raise ValueError("answers must be a list")
+    except (json.JSONDecodeError, ValueError, AttributeError):
+        return []
+
+    out = []
+    for p in proposals:
+        if not isinstance(p, dict):
+            continue
+        qid = p.get("questionId")
+        answer = p.get("answer")
+        evidence = p.get("evidence")
+        if not isinstance(qid, str) or not isinstance(answer, str) or not answer.strip():
+            continue
+        if not isinstance(evidence, list):
+            evidence = []
+        out.append({
+            "questionId": qid.strip(),
+            "answer": answer.strip(),
+            "evidence": [str(e).strip() for e in evidence if str(e).strip()],
+        })
+    return out
+
+
+def call_import(questions, digest_text):
+    return invoke_model(build_import_prompt(questions, digest_text))
+
+
 def call_llm(gap_context, user_message):
     """
     The one function that actually talks to OCI. Kept separate from the
@@ -493,6 +576,98 @@ def explain():
         return jsonify({"error": "The assistant is temporarily unavailable."}), 502
 
     return jsonify(parse_explain_response(raw_text))
+
+
+# Uploads are held in memory for the length of one request and never written
+# to disk here. The container is ephemeral, a client's configuration workbook
+# is some of the most sensitive material this product touches, and a temp file
+# left behind by a crash is exactly the kind of leak nobody notices.
+MAX_UPLOAD_BYTES = 12 * 1024 * 1024
+
+
+@app.route("/import", methods=["POST"])
+def import_workbook():
+    """
+    Reads an uploaded spreadsheet and proposes answers, each carrying the
+    cells it came from and the result of checking them.
+
+    Multipart: "file" is the workbook, "questions" is the JSON question list.
+    """
+    upload = request.files.get("file")
+    if upload is None:
+        return jsonify({"error": "a spreadsheet file is required"}), 400
+
+    raw_questions = request.form.get("questions") or "[]"
+    try:
+        questions = json.loads(raw_questions)
+        if not isinstance(questions, list) or not questions:
+            raise ValueError("questions must be a non-empty list")
+    except (json.JSONDecodeError, ValueError):
+        return jsonify({"error": "questions must be a JSON list of {id, text, type}"}), 400
+
+    blob = upload.read(MAX_UPLOAD_BYTES + 1)
+    if len(blob) > MAX_UPLOAD_BYTES:
+        return jsonify({"error": "that file is larger than %d MB"
+                        % (MAX_UPLOAD_BYTES // (1024 * 1024))}), 413
+    if not blob:
+        return jsonify({"error": "that file is empty"}), 400
+
+    import io
+    import INSIGHT_workbook_reader as reader
+
+    try:
+        digest = reader.digest_workbook(io.BytesIO(blob))
+    except Exception as exc:  # noqa: BLE001 -- openpyxl raises many shapes
+        # Almost always "this is not a spreadsheet" or "this is .xls, not
+        # .xlsx". Say which rather than 500-ing.
+        app.logger.warning("could not read the uploaded workbook: %s", exc)
+        return jsonify({"error": "That file could not be read as a spreadsheet. "
+                                 "It needs to be .xlsx -- older .xls files must be "
+                                 "re-saved first."}), 400
+
+    if not digest["sheets"]:
+        return jsonify({"error": "That spreadsheet has no populated cells."}), 400
+
+    try:
+        raw_text = call_import(questions, reader.digest_to_text(digest))
+    except Exception as exc:  # noqa: BLE001 -- any OCI/network failure
+        app.logger.error("OCI import call failed: %s", exc)
+        return jsonify({"error": "The assistant is temporarily unavailable, so the "
+                                 "spreadsheet could not be read."}), 502
+
+    proposals = parse_import_response(raw_text)
+
+    # Every citation is checked against the file before anyone sees the
+    # answer. This is the step that separates an auditable import from a
+    # confident-sounding guess.
+    known = {q.get("id") for q in questions if isinstance(q, dict)}
+    proposals = [p for p in proposals if p["questionId"] in known]
+
+    # Every cited cell in one pass. Re-opening a 700 KB workbook per answer
+    # would mean twenty opens for twenty answers, for no benefit.
+    all_refs = sorted({ref for p in proposals for ref in p["evidence"]})
+    cells = reader.read_cells(io.BytesIO(blob), all_refs) if all_refs else {}
+
+    checked = []
+    for p in proposals:
+        cited = {ref: cells.get(ref, "") for ref in p["evidence"]}
+        verdict = reader.verify_citations(p["answer"], cited)
+        if verdict["status"] == "uncited":
+            continue                      # nothing was checked, so show nothing
+        checked.append({
+            "questionId": p["questionId"],
+            "answer": p["answer"][:240],
+            "evidence": [{"ref": ref, "value": cited.get(ref, "")} for ref in p["evidence"]],
+            "verification": verdict,
+        })
+
+    return jsonify({
+        "proposals": checked,
+        "discarded": len(proposals) - len(checked),
+        "sheets_read": [s["name"] for s in digest["sheets"]],
+        "truncated": digest["truncated"],
+        "omitted_sheets": digest["omitted_sheets"],
+    })
 
 
 if __name__ == "__main__":

@@ -53,6 +53,7 @@ COPY python/INSIGHT_oracle_doc_ingestion.py .
 COPY python/INSIGHT_chat_proxy_requirements.txt .
 RUN pip install --no-cache-dir -r INSIGHT_chat_proxy_requirements.txt
 COPY python/INSIGHT_chat_proxy.py .
+COPY python/INSIGHT_workbook_reader.py .
 
 EXPOSE 8000
 

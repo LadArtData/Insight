@@ -316,3 +316,108 @@ class ExplainTests(unittest.TestCase):
         self.assertIn("Never invent the client's answer", prompt)
         self.assertIn("Legal Entity", prompt)
         self.assertIn("How many is normal?", prompt)
+
+
+class ImportWorkbookTests(unittest.TestCase):
+    """The upload path: read a client's spreadsheet, propose answers, check them."""
+
+    def setUp(self):
+        proxy.app.testing = True
+        self.client = proxy.app.test_client()
+        import io as _io
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Ledger"
+        ws.append(["Ledger Name", "Currency", "Accounting Method"])
+        ws.append(["OCWI", "USD", "Accrual with Encumbrances"])
+        buf = _io.BytesIO()
+        wb.save(buf)
+        self.blob = buf.getvalue()
+        self.questions = json.dumps([
+            {"id": "GL-002", "text": "What is your primary currency?", "type": "text"}])
+
+    def post(self, **overrides):
+        import io as _io
+        data = {"file": (_io.BytesIO(self.blob), "book.xlsx"), "questions": self.questions}
+        data.update(overrides)
+        return self.client.post("/import", data=data, content_type="multipart/form-data")
+
+    def model(self, payload):
+        return mock.patch.object(proxy, "call_import", return_value=json.dumps(payload))
+
+    def test_a_file_is_required(self):
+        resp = self.client.post("/import", data={"questions": self.questions},
+                                content_type="multipart/form-data")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_something_that_is_not_a_spreadsheet_says_so(self):
+        import io as _io
+        resp = self.post(file=(_io.BytesIO(b"this is not a workbook"), "notes.txt"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("spreadsheet", resp.get_json()["error"])
+
+    def test_a_supported_answer_comes_back_with_its_evidence(self):
+        with self.model({"answers": [{"questionId": "GL-002", "answer": "USD.",
+                                      "evidence": ["Ledger!B2"]}]}):
+            resp = self.post()
+        body = resp.get_json()
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(body["proposals"]), 1)
+        p = body["proposals"][0]
+        self.assertEqual(p["evidence"][0]["value"], "USD")
+        self.assertEqual(p["verification"]["status"], "supported")
+
+    def test_an_uncited_answer_is_discarded_rather_than_shown(self):
+        # Nothing was checked, so it must not appear as though it had been.
+        with self.model({"answers": [{"questionId": "GL-002", "answer": "USD.",
+                                      "evidence": []}]}):
+            resp = self.post()
+        body = resp.get_json()
+        self.assertEqual(body["proposals"], [])
+        self.assertEqual(body["discarded"], 1)
+
+    def test_an_answer_citing_an_empty_cell_is_discarded(self):
+        with self.model({"answers": [{"questionId": "GL-002", "answer": "USD.",
+                                      "evidence": ["Ledger!Z99"]}]}):
+            resp = self.post()
+        self.assertEqual(resp.get_json()["proposals"], [])
+
+    def test_an_answer_contradicting_its_citation_survives_but_is_marked(self):
+        # Kept, because a reviewer needs to see it to reject it -- but not
+        # presented as though the citation supported it.
+        with self.model({"answers": [{"questionId": "GL-002",
+                                      "answer": "They report in euros.",
+                                      "evidence": ["Ledger!B2"]}]}):
+            resp = self.post()
+        p = resp.get_json()["proposals"][0]
+        self.assertEqual(p["verification"]["status"], "unsupported")
+
+    def test_an_answer_to_a_question_that_does_not_exist_is_dropped(self):
+        with self.model({"answers": [{"questionId": "MADE-UP-001", "answer": "x",
+                                      "evidence": ["Ledger!B2"]}]}):
+            resp = self.post()
+        self.assertEqual(resp.get_json()["proposals"], [])
+
+    def test_a_malformed_model_reply_yields_nothing_rather_than_a_partial_import(self):
+        with mock.patch.object(proxy, "call_import", return_value="not json"):
+            resp = self.post()
+        self.assertEqual(resp.get_json()["proposals"], [])
+
+    def test_the_model_being_unreachable_is_a_502(self):
+        with mock.patch.object(proxy, "call_import", side_effect=RuntimeError("no policy")):
+            resp = self.post()
+        self.assertEqual(resp.status_code, 502)
+
+    def test_the_prompt_forbids_answering_from_general_knowledge(self):
+        prompt = proxy.build_import_prompt(
+            [{"id": "GL-002", "text": "Currency?", "type": "text"}], "Ledger!B2 = USD")
+        self.assertIn("Never answer from general knowledge", prompt)
+        self.assertIn("must cite at least one cell address", prompt)
+        self.assertIn("GL-002", prompt)
+        self.assertIn("Ledger!B2", prompt)
+
+    def test_the_response_says_which_sheets_were_read(self):
+        with self.model({"answers": []}):
+            resp = self.post()
+        self.assertEqual(resp.get_json()["sheets_read"], ["Ledger"])
