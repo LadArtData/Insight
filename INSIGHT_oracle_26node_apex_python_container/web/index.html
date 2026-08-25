@@ -585,7 +585,7 @@
       </div>
       <div class="chat-body" id="chat-body"></div>
       <div class="chat-input-row">
-        <input type="text" class="chat-input" id="chat-input" maxlength="500" placeholder="Type your answer…">
+        <input type="text" class="chat-input" id="chat-input" maxlength="250" placeholder="Type your answer…">
         <button class="chat-send" id="chat-send" aria-label="Send">➤</button>
       </div>
     </div>
@@ -856,7 +856,26 @@
     };
   }
 
-  var MAX_ANSWER_LEN = 2000;
+  // A discovery answer is a fact, not an essay. 2000 characters invited
+  // pasted email threads into a field that has to map onto a Fusion setup
+  // value; 250 is roughly three sentences, which is what these questions
+  // actually want. Anything longer belongs in the client file's additional
+  // information, which is free-form on purpose and stays generous.
+  //
+  // Existing answers longer than this are not truncated -- they sit there
+  // until someone edits them, and then have to be shortened. Silently
+  // cutting a stored answer is worse than asking.
+  var MAX_ANSWER_LEN = 250;
+
+  // Seven digits, so 9,999,999 of anything countable. maxlength allows two
+  // more characters than that so thousands separators fit: "9,999,999" is
+  // nine characters carrying seven digits.
+  var MAX_NUMBER_DIGITS = 7;
+  var MAX_NUMBER_INPUT_LEN = MAX_NUMBER_DIGITS + 2;
+
+  function digitCount(v) {
+    return (String(v).match(/\d/g) || []).length;
+  }
   function setFieldError(el, message) {
     var errEl = document.getElementById("q-field-error");
     if (!errEl) return;
@@ -1698,7 +1717,7 @@
           field.placeholder = "Not answered yet";
         }
         field.className = "sheet-input";
-        field.maxLength = MAX_ANSWER_LEN;
+        field.maxLength = (rule && rule.maxLength) ? rule.maxLength : MAX_ANSWER_LEN;
         field.value = blank ? "" : String(value);
         field.addEventListener("input", function () { row.dataset.value = field.value; });
         row.appendChild(field);
@@ -2254,12 +2273,20 @@
   var TYPE_RULES = {
     number: {
       inputMode: "numeric",
+      maxLength: MAX_NUMBER_INPUT_LEN,
       placeholder: "Enter a number…",
       // Digits with optional decimals and thousands separators. A leading
       // "~" or "approx" is deliberately NOT allowed: the question asks for
       // a count, and qualifiers belong in a follow-up, not in the number.
-      test: function (v) { return /^\d{1,3}(,\d{3})*(\.\d+)?$|^\d+(\.\d+)?$/.test(v); },
-      message: "Enter a number — digits only (for example 14)."
+      //
+      // Capped at seven digits. Separators and a decimal point are not
+      // counted, so the limit is on the number rather than on how it was
+      // typed -- 9,999,999 and 9999999 are the same quantity.
+      test: function (v) {
+        return /^\d{1,3}(,\d{3})*(\.\d+)?$|^\d+(\.\d+)?$/.test(v) &&
+               digitCount(v) <= MAX_NUMBER_DIGITS;
+      },
+      message: "Enter a number — digits only, up to " + MAX_NUMBER_DIGITS + " digits (for example 14)."
     },
     currency: {
       inputMode: "decimal",
@@ -2427,7 +2454,9 @@
       } else {
         ta.placeholder = "Type the client's answer here…";
       }
-      ta.maxLength = MAX_ANSWER_LEN;
+      // A typed field can be tighter than the prose limit -- a count has no
+      // business being 250 characters long.
+      ta.maxLength = (rule && rule.maxLength) ? rule.maxLength : MAX_ANSWER_LEN;
       ta.value = q.answer || "";
       var counter = null;
       function updateCounter() {
@@ -2681,8 +2710,10 @@
     var input = document.getElementById("chat-input");
     var val = input.value.trim();
     if (!val) return; // silently ignore empty sends rather than posting a blank bubble
-    if (val.length > 500) {
-      showFatalError("Message is too long (500 character limit) — trim it and try again.");
+    // What is typed here becomes the answer, so it is held to the answer
+    // limit rather than a separate chat one.
+    if (val.length > MAX_ANSWER_LEN) {
+      showFatalError("Message is too long (" + MAX_ANSWER_LEN + " character limit) — trim it and try again.");
       return;
     }
     addMessage("user", escapeHtml(val));

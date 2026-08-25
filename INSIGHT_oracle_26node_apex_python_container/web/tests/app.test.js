@@ -2371,3 +2371,91 @@ test("roster: the two ways into a client are labelled, not two identical glyphs"
   assert.match(row.querySelector("[data-open]").title, /first unanswered/i);
   win.close();
 });
+
+test("limits: a free-text answer is capped at 250 characters", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  await wait(30);
+
+  const ta = win.document.querySelector(".q-input");
+  assert.equal(ta.maxLength, 250, "the field itself should stop at the limit");
+
+  // And the validator agrees, for anything that got in another way.
+  fillText(win, "x".repeat(300));
+  await clickNext(win);
+  await wait(40);
+  assert.equal(progressLabel(win), "1 / " + GL_ONLY_DECK, "must not advance");
+  win.close();
+});
+
+test("limits: a number question accepts seven digits and refuses eight", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  // Walk to the first numeric intake question.
+  for (let i = 0; i < INTAKE_COUNT; i++) {
+    const el = win.document.querySelector(".q-input");
+    if (el && el.getAttribute("inputmode") === "numeric") break;
+    fillValid(win, "A considered answer for intake question " + i + ".");
+    await clickNext(win);
+  }
+  const field = win.document.querySelector(".q-input");
+  assert.equal(field.getAttribute("inputmode"), "numeric");
+  // Nine, so "9,999,999" fits -- the cap is on the number, not on how it
+  // was typed.
+  assert.equal(field.maxLength, 9);
+
+  const before = progressLabel(win);
+  fillText(win, "12345678");
+  await clickNext(win);
+  await wait(40);
+  assert.equal(progressLabel(win), before, "eight digits must be refused");
+  assert.match(byId(win, "q-field-error").textContent, /up to 7 digits/);
+
+  fillText(win, "1234567");
+  await clickNext(win);
+  await wait(40);
+  assert.notEqual(progressLabel(win), before, "seven digits is fine");
+  win.close();
+});
+
+test("limits: thousands separators do not count against the seven digits", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  byId(win, "btn-new-client").click();
+  for (let i = 0; i < INTAKE_COUNT; i++) {
+    const el = win.document.querySelector(".q-input");
+    if (el && el.getAttribute("inputmode") === "numeric") break;
+    fillValid(win, "A considered answer for intake question " + i + ".");
+    await clickNext(win);
+  }
+  const before = progressLabel(win);
+  fillText(win, "9,999,999");
+  await clickNext(win);
+  await wait(40);
+  assert.notEqual(progressLabel(win), before,
+    "9,999,999 is seven digits however it is punctuated");
+  win.close();
+});
+
+test("limits: the client file honours the same caps", async () => {
+  const server = statefulFakeOrds();
+  seedClient(server, "c-lim", { answers: { "QUAL-GL": "Yes" } });
+  const dom = await bootApp((win) => { win.fetch = server.fetchImpl; });
+  const win = dom.window;
+  await wait(60);
+  await openInfoSheet(win, "c-lim");
+
+  assert.equal(qfField(win, "INTAKE-005").maxLength, 9, "a count field, capped at seven digits");
+  assert.equal(qfField(win, "INTAKE-003").maxLength, 250, "a prose field, capped at 250");
+  win.close();
+});
+
+test("limits: the chat holds answers to the same 250 characters", async () => {
+  const dom = await bootApp();
+  const win = dom.window;
+  assert.equal(byId(win, "chat-input").maxLength, 250,
+    "what is typed in the chat becomes the answer, so it obeys the answer limit");
+  win.close();
+});
